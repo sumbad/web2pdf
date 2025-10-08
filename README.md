@@ -1,0 +1,102 @@
+# Web2PDF
+
+A Rust command-line utility for converting websites to a single PDF document. It fetches a site via sitemap, converts each page to PDF using headless Chrome, and merges all pages into one file.
+
+## Features
+
+- 🌐 Automatic page discovery via sitemap.xml
+- 🖨️ HTML to PDF conversion using Chromium/Chrome
+- 📚 Merge multiple PDFs into one document with bookmarks
+- 🧹 Remove unwanted elements (ads, cookie notices, footers)
+- 🔧 Cross-platform support (macOS, Linux, Windows)
+
+## Installation
+
+### Requirements
+
+- Rust 2024+
+- Chromium or Google Chrome
+
+### Build from source
+
+```bash
+git clone <repository-url>
+cd web2pdf
+cargo build --release
+```
+
+## Usage
+
+### Basic syntax
+
+```bash
+cargo run -- <URL> <output.pdf>
+```
+
+### Examples
+
+```bash
+# Convert website to PDF
+cargo run -- https://example.com site.pdf
+
+# Using optimized build
+./target/release/web2pdf https://example.com site.pdf
+```
+
+### How it works
+
+1. **Browser detection** - Finds Chromium/Chrome in PATH or standard paths
+2. **Sitemap fetching** - Loads sitemap.xml from the specified URL
+3. **Page filtering** - Excludes unwanted pages (subscribe, errata, colophon)
+4. **PDF conversion** - Creates PDF for each page via headless browser
+5. **Merging** - Combines all PDF files into one document with bookmarks
+
+## Development
+
+### Project structure
+
+```
+src/
+├── main.rs       # Main application logic
+└── pdf_utils.rs  # PDF manipulation utilities
+```
+
+### Build and testing
+
+```bash
+# Build
+cargo build
+
+# Optimized build
+cargo build --release
+
+# Run tests
+cargo test
+
+# Check code
+cargo check
+
+# Format code
+cargo fmt
+
+# Linting
+cargo clippy -- -D warnings
+```
+
+### Key dependencies
+
+- `chromiumoxide` - Headless Chrome control
+- `reqwest` - HTTP client for sitemap fetching
+- `lopdf` - PDF document manipulation
+- `quick-xml` - XML sitemap parsing
+- `tokio` - Async runtime
+
+## Limitations
+
+- Current version processes only the first 2 pages from sitemap
+- Requires installed Chromium or Chrome
+- Some JavaScript-heavy sites may not render correctly
+
+## License
+
+MIT License
