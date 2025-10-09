@@ -24,11 +24,16 @@ async fn main() -> Result<()> {
 
     let sitemap_links = get_sitemap_url(url).await?;
     let sitemap_blacklist = ["subscribe", "errata", "colophon"];
-    let sitemap_links: Vec<String> = sitemap_links
+    let mut sitemap_links: Vec<String> = sitemap_links
         .into_iter()
         .filter(|url| !sitemap_blacklist.iter().any(|bad| url.contains(bad)))
         .collect();
-    let sitemap_links = &sitemap_links[0..2];
+    sitemap_links.sort_by(|a, b| {
+        let num_a = extract_chapter_number(a);
+        let num_b = extract_chapter_number(b);
+        num_a.cmp(&num_b)
+    });
+    // let sitemap_links = &sitemap_links[0..2];
     println!("Sitemap links {:#?}", sitemap_links);
 
     // 🧭 1. Start browser
@@ -102,7 +107,6 @@ async fn get_sitemap_url(base_url: &String) -> Result<Vec<String>> {
     let xml = reqwest::get(sitemap_url).await?.text().await?;
 
     let mut reader = quick_xml::Reader::from_str(&xml);
-    // reader.trim_text(true);
 
     let mut buf = Vec::new();
     let mut links = Vec::new();
@@ -123,6 +127,33 @@ async fn get_sitemap_url(base_url: &String) -> Result<Vec<String>> {
     }
 
     Ok(links)
+}
+
+fn extract_chapter_number(url: &str) -> u32 {
+    use std::str::FromStr;
+
+    // Extract number from the last path segment
+    if let Some(segment) = url.split('/').next_back() {
+        // Find digits at the end of the segment
+        if let Some(digit_start) = segment.find(|c: char| c.is_ascii_digit()) {
+            let digit_end = if let Some(digit_end) = segment.rfind(|c: char| c.is_ascii_digit()) {
+                digit_end
+            } else {
+                segment.len()
+            };
+            
+            let digits = &segment[digit_start..=digit_end];
+            let number = u32::from_str(digits).unwrap_or(u32::MAX);
+            return number;
+        } else {
+            println!("  ❌ No digits found in segment");
+        }
+    } else {
+        println!("  ❌ No segments found in URL");
+    }
+
+    println!("  ⚠️ Returning MAX value");
+    u32::MAX
 }
 
 /// Try to find browser binary.
