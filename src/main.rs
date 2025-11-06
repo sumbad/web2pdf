@@ -33,18 +33,32 @@ async fn main() -> Result<()> {
         let num_b = extract_chapter_number(b);
         num_a.cmp(&num_b)
     });
-    // let sitemap_links = &sitemap_links[0..2];
+    let sitemap_links: Vec<&String> = if sitemap_links.is_empty() {
+        println!("  ❌ No sitemap links found, using direct URL");
+        vec![&url]
+    } else {
+        sitemap_links.iter().collect()
+    };
+    // DEBUG: add cft for tests
+    // {
+    //     sitemap_links[0..3.min(sitemap_links.len())]
+    //         .iter()
+    //         .collect()
+    // };
     println!("Sitemap links {:#?}", sitemap_links);
 
     // 🧭 1. Start browser
     let config = BrowserConfig::builder()
         .chrome_executable(browser_path)
         // .with_head()
+        // .arg("--disable-web-security")
+        // .arg("--disable-features=VizDisplayCompositor")
+        // .arg("--disable-dev-shm-usage")
         .build()
         .map_err(|e| anyhow::anyhow!(e))?;
     let (mut browser, mut handler) = Browser::launch(config).await?;
 
-    tokio::spawn(async move {
+    let handle = tokio::spawn(async move {
         while let Some(event) = handler.next().await {
             match event {
                 Ok(_) => {}
@@ -65,12 +79,37 @@ async fn main() -> Result<()> {
 
     // 📂 2. Temporary folder for individual PDFs
     let dir = tempdir()?;
-    let mut pdf_files: Vec<PathBuf> = Vec::new();
+    let mut pdf_files: Vec<(PathBuf, String)> = Vec::new();
 
     // 🌀 3. Process each page
     for (i, link) in sitemap_links.iter().enumerate() {
         println!("→ [{}/{}] Processing {}", i + 1, sitemap_links.len(), link);
-        let page = browser.new_page(link).await?;
+
+        println!("  🌐 Creating new page...");
+        let page = tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            browser.new_page((*link).clone()),
+        )
+        .await;
+
+        let page = match page {
+            Ok(p) => p,
+            Err(_) => {
+                println!("  ❌ Timeout creating page after 30 seconds");
+                continue;
+            }
+        };
+
+        let page = match page {
+            Ok(p) => p,
+            Err(e) => {
+                println!("  ❌ Failed to create page: {}", e);
+                continue;
+            }
+        };
+        println!("  ✅ Page created successfully");
+
+        println!("  🧹 Removing unwanted elements...");
         let js_remove = r#"
             () => {
                 document.querySelectorAll('.ads, .cookie, .footer').forEach(e => e.remove());
@@ -78,25 +117,69 @@ async fn main() -> Result<()> {
             }
         "#;
         let _removed: bool = page.evaluate(js_remove).await?.into_value()?;
+        println!("  ✅ Elements removed");
 
+        println!("  📝 Extracting page title...");
+        // Extract page title
+        let title_js = r#"
+            () => {
+                return document.title || window.location.href;
+            }
+        "#;
+        let title: String = page.evaluate(title_js).await?.into_value()?;
+        let chapter_num = extract_chapter_number(link);
+        let title = if chapter_num > 0 {
+            format!("Chapter {} - {}", chapter_num, title)
+        } else {
+            title
+        };
+        println!("  ✅ Title extracted: {}", title);
+
+        println!("  🖨️ Generating PDF...");
         let pdf_opts = PrintToPdfParams::default();
         let pdf_path = dir.path().join(format!("page_{:04}.pdf", i));
         // pdf_opts.generate_document_outline = Some(true);
-        page.save_pdf(pdf_opts, &pdf_path).await?;
-        println!(
-            "Save PDF to {} - {} bytes",
-            pdf_path.display(),
-            std::fs::metadata(&pdf_path)?.len()
-        );
-        pdf_files.push(pdf_path);
+
+        println!("  💾 Saving PDF to {}...", pdf_path.display());
+        let save_result = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            page.save_pdf(pdf_opts, &pdf_path),
+        )
+        .await;
+
+        match save_result {
+            Ok(Ok(_)) => println!("  ✅ PDF saved successfully"),
+            Ok(Err(e)) => {
+                println!("  ❌ Failed to save PDF: {}", e);
+                continue;
+            }
+            Err(_) => {
+                println!("  ❌ Timeout saving PDF after 60 seconds");
+                continue;
+            }
+        }
+
+        match std::fs::metadata(&pdf_path) {
+            Ok(metadata) => {
+                println!("  📊 PDF size: {} bytes", metadata.len());
+            }
+            Err(e) => {
+                println!("  ❌ Failed to get PDF metadata: {}", e);
+                continue;
+            }
+        }
+
+        pdf_files.push((pdf_path, title));
+        println!("  ✅ Page processing complete\n");
     }
 
     browser.close().await?;
+    handle.await?;
 
     // 🧩 4. Merge PDFs
     let output_path = PathBuf::from(output);
     println!("📚 Merging {} PDFs into {}", pdf_files.len(), output);
-    merge_pdfs(pdf_files.iter(), &output_path)?;
+    merge_pdfs(pdf_files, output_path)?;
 
     Ok(())
 }
@@ -141,19 +224,13 @@ fn extract_chapter_number(url: &str) -> u32 {
             } else {
                 segment.len()
             };
-            
-            let digits = &segment[digit_start..=digit_end];
-            let number = u32::from_str(digits).unwrap_or(u32::MAX);
-            return number;
-        } else {
-            println!("  ❌ No digits found in segment");
-        }
-    } else {
-        println!("  ❌ No segments found in URL");
-    }
 
-    println!("  ⚠️ Returning MAX value");
-    u32::MAX
+            let digits = &segment[digit_start..=digit_end];
+            let number = u32::from_str(digits).unwrap_or(0);
+            return number;
+        }
+    }
+    0
 }
 
 /// Try to find browser binary.

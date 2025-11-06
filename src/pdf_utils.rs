@@ -1,12 +1,11 @@
 use lopdf::{Bookmark, Document, Object, ObjectId};
 use std::{collections::BTreeMap, path::Path};
 
-pub fn merge_pdfs<I, P>(files: I, output: P) -> lopdf::Result<()>
+pub fn merge_pdfs<P>(files_with_titles: Vec<(P, String)>, output: P) -> lopdf::Result<()>
 where
-    I: IntoIterator<Item = P>,
     P: AsRef<Path>,
 {
-    let files_iter = files.into_iter();
+    let files_iter = files_with_titles.into_iter();
 
     // Define a starting `max_id` (will be used as start index for object_ids).
     let mut max_id = 1;
@@ -16,7 +15,7 @@ where
     let mut documents_objects = BTreeMap::new();
     let mut document = Document::with_version("1.5");
 
-    for path in files_iter {
+    for (path, title) in files_iter {
         let path_ref = path.as_ref();
 
         // ⚠️ Skip corrupted PDFs
@@ -32,23 +31,19 @@ where
         doc.renumber_objects_with(max_id);
         max_id = doc.max_id + 1;
 
-        let mut first = false;
-
-        // 📑 Add pages
+        // 📑 Add pages with bookmarks
+        let mut is_first_page = true;
         documents_pages.extend(
             IntoIterator::into_iter(doc.get_pages())
-                .map(|(_, object_id)| {
-                    if !first {
-                        let bookmark = Bookmark::new(
-                            format!("Page_{}", pagenum),
-                            [0.0, 0.0, 1.0],
-                            0,
-                            object_id,
-                        );
+                .map(|(_page_num, object_id)| {
+                    // Create bookmark for the first page of this document
+                    if is_first_page {
+                        println!("  🔖 Creating bookmark: {}", title);
+                        let bookmark = Bookmark::new(title.clone(), [0.0, 0.0, 1.0], pagenum - 1, object_id);
                         document.add_bookmark(bookmark, None);
-                        first = true;
-                        pagenum += 1;
+                        is_first_page = false;
                     }
+                    pagenum += 1;
 
                     (object_id, doc.get_object(object_id).unwrap().to_owned())
                 })
@@ -107,9 +102,10 @@ where
         }
     }
 
-    // If no "Pages" object found, abort.
+    // If no "Pages" object found, return early (no PDFs to merge).
     if pages_object.is_none() {
-        return Err(lopdf::Error::DictKey("Pages root not found".to_string()));
+        println!("  ⚠️ No pages found to merge");
+        return Ok(());
     }
 
     // Iterate over all "Page" objects and collect into the parent "Pages" created before
@@ -143,7 +139,13 @@ where
 
         // Set new "Kids" list (collected from documents pages) for "Pages"
         let page_ids: Vec<_> = documents_pages.keys().copied().collect();
-        dictionary.set("Kids", page_ids.into_iter().map(Object::Reference).collect::<Vec<_>>());
+        dictionary.set(
+            "Kids",
+            page_ids
+                .into_iter()
+                .map(Object::Reference)
+                .collect::<Vec<_>>(),
+        );
 
         document
             .objects
@@ -154,7 +156,9 @@ where
     if let Ok(dictionary) = catalog_object.1.as_dict() {
         let mut dictionary = dictionary.clone();
         dictionary.set("Pages", pages_object.0);
-        document.objects.insert(catalog_object.0, Object::Dictionary(dictionary));
+        document
+            .objects
+            .insert(catalog_object.0, Object::Dictionary(dictionary));
     }
 
     document.trailer = lopdf::Dictionary::new();
@@ -173,10 +177,74 @@ where
     document.adjust_zero_pages();
 
     // Set all bookmarks to the PDF Object tree then set the Outlines to the Bookmark content map.
-    if let Some(n) = document.build_outline()
-        && let Ok(Object::Dictionary(dict)) = document.get_object_mut(catalog_object.0)
-    {
-        dict.set("Outlines", Object::Reference(n));
+    println!(
+        "  🔗 Building outline from {} bookmarks",
+        document.bookmarks.len()
+    );
+
+    if document.bookmarks.is_empty() {
+        println!("  ⚠️ No bookmarks to create outline");
+    } else {
+        println!("  📚 Bookmarks found: {:?}", document.bookmarks);
+
+        match document.build_outline() {
+            Some(outline_id) => {
+                println!("  ✅ Outline created with ID: {:?}", outline_id);
+                
+                // Get the actual catalog ID from the trailer after renumbering
+                let catalog_id = document.trailer.get(b"Root")
+                    .and_then(|root| root.as_reference())
+                    .unwrap_or(catalog_object.0);
+                println!("  📄 Catalog ID: {:?}", catalog_id);
+
+                // Ensure the outline object has proper structure
+                match document.get_object(outline_id) {
+                    Ok(outline_obj) => {
+                        if let Object::Dictionary(mut outline_dict) = outline_obj.clone() {
+                                            // Add Count property (number of bookmarks)
+                                            outline_dict.set("Count", document.bookmarks.len() as i64);
+                        
+                                            // Update the outline object
+                                            if let Ok(obj) = document.get_object_mut(outline_id) {
+                                                *obj = Object::Dictionary(outline_dict);
+                                                println!("  ✅ Enhanced outline with Count: {}", document.bookmarks.len());
+                                            }
+                                        }
+                    }
+                    _ => (),
+                }
+
+                match document.get_object_mut(catalog_id) {
+                    Ok(Object::Dictionary(dict)) => {
+                        dict.set("Outlines", Object::Reference(outline_id));
+                        println!("  ✅ Outline added to catalog");
+                    }
+                    Ok(Object::Stream(stream)) => {
+                        // Handle linearized PDFs - convert to dictionary
+                        let mut new_dict = stream.dict.clone();
+                        new_dict.set("Outlines", Object::Reference(outline_id));
+                        *document.get_object_mut(catalog_id).unwrap() =
+                            Object::Dictionary(new_dict);
+                        println!("  ✅ Outline added to linearized catalog");
+                    }
+                    Ok(other) => {
+                        println!("  ❌ Catalog object type: {:?}", other.type_name());
+                        // Try to force it to be a dictionary
+                        if let Err(e) = document.get_object_mut(catalog_id).map(|obj| {
+                            *obj = Object::Dictionary(lopdf::Dictionary::new());
+                        }) {
+                            println!("  ❌ Failed to convert catalog to dictionary: {}", e);
+                        }
+                    }
+                    Err(e) => {
+                        println!("  ❌ Failed to get catalog object: {}", e);
+                    }
+                }
+            }
+            None => {
+                println!("  ❌ Failed to build outline");
+            }
+        }
     }
 
     document.compress();
