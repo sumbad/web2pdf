@@ -135,8 +135,23 @@ async fn main() -> Result<()> {
         };
         println!("  ✅ Title extracted: {}", title);
 
+        let js_add_lang = r#"
+        () => {
+            document.documentElement.lang = document.documentElement.lang || 'en';
+            return document.documentElement.lang;
+        }
+        "#;
+
+        page.evaluate(js_add_lang).await?;
+
         println!("  🖨️ Generating PDF...");
-        let pdf_opts = PrintToPdfParams::default();
+        // let pdf_opts = PrintToPdfParams::default();
+        let pdf_opts = PrintToPdfParams {
+            generate_tagged_pdf: Some(true),
+            scale: Some(1.0),
+            print_background: Some(false),
+            ..Default::default()
+        };
         let pdf_path = dir.path().join(format!("page_{:04}.pdf", i));
         // pdf_opts.generate_document_outline = Some(true);
 
