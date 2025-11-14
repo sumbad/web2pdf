@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use chromiumoxide::browser::{Browser, BrowserConfig};
 use chromiumoxide::cdp::browser_protocol::page::PrintToPdfParams;
 use futures::StreamExt;
+
 use std::env;
 use std::path::{Path, PathBuf};
 use tempfile::tempdir;
@@ -22,7 +23,9 @@ async fn main() -> Result<()> {
     let browser_path = find_browser().context("Browser not found!")?;
     println!("Use browser: {}", browser_path);
 
+    tracing::debug!("Fetching sitemap for URL: {}", url);
     let sitemap_links = get_sitemap_url(url).await?;
+    tracing::info!("Found {} sitemap links", sitemap_links.len());
     let sitemap_blacklist = ["subscribe", "errata", "colophon"];
     let mut sitemap_links: Vec<String> = sitemap_links
         .into_iter()
@@ -41,22 +44,63 @@ async fn main() -> Result<()> {
     };
     // DEBUG: add cft for tests
     // {
-    //     sitemap_links[0..3.min(sitemap_links.len())]
+    //     // -----------------------------
+    //     // ENABLE DETAILED LOGGING
+    //     // -----------------------------
+    //     unsafe {
+    //         std::env::set_var("RUST_LOG", "debug");
+    //         tracing_subscriber::fmt()
+    //             .with_max_level(tracing::Level::DEBUG)
+    //             .with_target(true)
+    //             .with_thread_ids(true)
+    //             .with_file(true)
+    //             .with_line_number(true)
+    //             .init();
+    //     }
+    //
+    //     tracing::debug!("Logging initialized successfully");
+    //     sitemap_links[2..3.min(sitemap_links.len())]
     //         .iter()
     //         .collect()
     // };
     println!("Sitemap links {:#?}", sitemap_links);
 
     // 🧭 1. Start browser
+    tracing::debug!("Configuring browser with path: {}", browser_path);
     let config = BrowserConfig::builder()
         .chrome_executable(browser_path)
         // .with_head()
-        // .arg("--disable-web-security")
-        // .arg("--disable-features=VizDisplayCompositor")
-        // .arg("--disable-dev-shm-usage")
+        .arg("--disable-web-security")
+        .arg("--disable-features=VizDisplayCompositor")
+        .arg("--disable-font-subpixel-positioning")
+        .arg("--export-tagged-pdf")
+        .arg("--force-renderer-accessibility")
+        .arg("--no-sandbox")
+        .arg("--disable-dev-shm-usage")
+        .arg("--disable-gpu")
+        .arg("--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        .arg("--disable-blink-features=AutomationControlled")
+        .arg("--no-first-run")
+        .arg("--no-default-browser-check")
+        .arg("--disable-features=ChromeWhatsNewUI,TabHoverCardImages,TabHoverCards,OmniboxOnDeviceHeadSuggestions")
+        .arg("--disable-background-networking")
+        .arg("--disable-renderer-backgrounding")
+        .arg("--disable-client-side-phishing-detection")
+        .arg("--disable-component-update")
+        .arg("--disable-domain-reliability")
+        .arg("--disable-default-apps")
+        .arg("--disable-sync")
+        .arg("--disable-ntp-most-likely-favicons-from-server")
+        .arg("--disable-features=NewTabPage")
+        .arg("--homepage=about:blank")
+        .arg("--new-window")
+        .arg("about:blank")
         .build()
         .map_err(|e| anyhow::anyhow!(e))?;
+    tracing::debug!("Browser configuration created, launching...");
+    tracing::debug!("Launching browser...");
     let (mut browser, mut handler) = Browser::launch(config).await?;
+    tracing::debug!("Browser launched successfully");
 
     let handle = tokio::spawn(async move {
         while let Some(event) = handler.next().await {
@@ -86,6 +130,7 @@ async fn main() -> Result<()> {
         println!("→ [{}/{}] Processing {}", i + 1, sitemap_links.len(), link);
 
         println!("  🌐 Creating new page...");
+
         let page = tokio::time::timeout(
             std::time::Duration::from_secs(30),
             browser.new_page((*link).clone()),
@@ -107,17 +152,81 @@ async fn main() -> Result<()> {
                 continue;
             }
         };
+
+        // Wait for document to be ready
+        let wait_js = r#"
+            () => {
+                return new Promise((resolve) => {
+                    if (document.readyState === 'complete') {
+                        resolve(true);
+                    } else {
+                        window.addEventListener('load', () => resolve(true));
+                        setTimeout(() => resolve(false), 5000); // fallback after 5s
+                    }
+                });
+            }
+        "#;
+
+        let wait_result: bool = page.evaluate(wait_js).await?.into_value()?;
+        if wait_result {
+            tracing::debug!("Page document is ready");
+        } else {
+            tracing::warn!("Page wait timed out, proceeding anyway");
+        }
+
         println!("  ✅ Page created successfully");
 
-        println!("  🧹 Removing unwanted elements...");
+        println!("  🧹 Clear page for screen readers...");
         let js_remove = r#"
             () => {
-                document.querySelectorAll('.ads, .cookie, .footer').forEach(e => e.remove());
+                document.querySelectorAll('.ads, .cookie, .footer, footer').forEach(e => e.remove());
+
+                function cleanNodeText(node) {
+                    if (node.nodeType === Node.TEXT_NODE) {
+                        node.textContent = node.textContent
+                            .replace(/[\u200B-\u200D\uFEFF]/g, '')   // zero-width
+                            .replace(/\u00A0/g, ' ')                 // non-breaking space
+                            .replace(/\s+/g, ' ')                    // normalize spaces
+                            .trim();
+                    } else if (node.nodeType === Node.ELEMENT_NODE) {
+                        node.childNodes.forEach(cleanNodeText);
+                    }
+                }
+
+                document.querySelectorAll('p, div, span, li, h1, h2, h3, h4, h5, h6').forEach(el => {
+                    cleanNodeText(el);
+                });
+
+                // Remove empty paragraphs
+                document.querySelectorAll('p').forEach(p => {
+                    if (!p.textContent.trim()) p.remove();
+                });
+                
+                // Add CSS to prevent text breaking
+                const style = document.createElement('style');
+                style.innerHTML = `
+                    body {
+                        font-variation-settings: "wght" 400;
+                        font-feature-settings: "kern" 0, "liga" 0, "calt" 0;
+                    }
+                    * {
+                        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif !important;
+                    }
+                    p, li, td, th {
+                        page-break-inside: avoid;
+                        break-inside: avoid;
+                        orphans: 3;
+                        widows: 3;
+                    }
+                `;
+                document.head.appendChild(style);
                 return true;
             }
         "#;
+        tracing::debug!("Executing page cleanup script");
         let _removed: bool = page.evaluate(js_remove).await?.into_value()?;
-        println!("  ✅ Elements removed");
+        tracing::debug!("Page cleanup completed successfully");
+        println!("  ✅ Page cleaned");
 
         println!("  📝 Extracting page title...");
         // Extract page title
@@ -126,7 +235,9 @@ async fn main() -> Result<()> {
                 return document.title || window.location.href;
             }
         "#;
+        tracing::debug!("Executing title extraction script");
         let title: String = page.evaluate(title_js).await?.into_value()?;
+        tracing::debug!("Extracted title: {}", title);
         let chapter_num = extract_chapter_number(link);
         let title = if chapter_num > 0 {
             format!("Chapter {} - {}", chapter_num, title)
@@ -145,13 +256,22 @@ async fn main() -> Result<()> {
         page.evaluate(js_add_lang).await?;
 
         println!("  🖨️ Generating PDF...");
+        tracing::debug!("Configuring PDF generation options");
         // let pdf_opts = PrintToPdfParams::default();
         let pdf_opts = PrintToPdfParams {
             generate_tagged_pdf: Some(true),
             scale: Some(1.0),
             print_background: Some(false),
+            prefer_css_page_size: Some(true),
             ..Default::default()
         };
+        tracing::debug!(
+            "PDF options: tagged={}, scale={}, background={}, css_size={}",
+            pdf_opts.generate_tagged_pdf.unwrap_or(false),
+            pdf_opts.scale.unwrap_or(0.0),
+            pdf_opts.print_background.unwrap_or(false),
+            pdf_opts.prefer_css_page_size.unwrap_or(false)
+        );
         let pdf_path = dir.path().join(format!("page_{:04}.pdf", i));
         // pdf_opts.generate_document_outline = Some(true);
 
@@ -163,12 +283,17 @@ async fn main() -> Result<()> {
         .await;
 
         match save_result {
-            Ok(Ok(_)) => println!("  ✅ PDF saved successfully"),
+            Ok(Ok(_)) => {
+                tracing::debug!("PDF saved successfully to: {}", pdf_path.display());
+                println!("  ✅ PDF saved successfully");
+            }
             Ok(Err(e)) => {
+                tracing::error!("Failed to save PDF: {}", e);
                 println!("  ❌ Failed to save PDF: {}", e);
                 continue;
             }
             Err(_) => {
+                tracing::error!("Timeout saving PDF after 10 seconds");
                 println!("  ❌ Timeout saving PDF after 60 seconds");
                 continue;
             }
@@ -201,8 +326,13 @@ async fn main() -> Result<()> {
 
 async fn get_sitemap_url(base_url: &String) -> Result<Vec<String>> {
     let sitemap_url = format!("{base_url}/sitemap.xml");
+    tracing::debug!("Fetching sitemap from: {}", sitemap_url);
 
-    let xml = reqwest::get(sitemap_url).await?.text().await?;
+    let response = reqwest::get(&sitemap_url).await?;
+    tracing::debug!("Sitemap response status: {}", response.status());
+
+    let xml = response.text().await?;
+    tracing::debug!("Sitemap XML length: {} bytes", xml.len());
 
     let mut reader = quick_xml::Reader::from_str(&xml);
 

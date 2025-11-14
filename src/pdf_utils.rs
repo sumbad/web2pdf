@@ -1,4 +1,4 @@
-use lopdf::{Bookmark, Document, Object, ObjectId};
+use lopdf::{Bookmark, Dictionary, Document, Object, ObjectId};
 use std::{collections::BTreeMap, path::Path};
 
 pub fn merge_pdfs<P>(files_with_titles: Vec<(P, String)>, output: P) -> lopdf::Result<()>
@@ -39,7 +39,8 @@ where
                     // Create bookmark for the first page of this document
                     if is_first_page {
                         println!("  🔖 Creating bookmark: {}", title);
-                        let bookmark = Bookmark::new(title.clone(), [0.0, 0.0, 1.0], pagenum - 1, object_id);
+                        let bookmark =
+                            Bookmark::new(title.clone(), [0.0, 0.0, 1.0], pagenum - 1, object_id);
                         document.add_bookmark(bookmark, None);
                         is_first_page = false;
                     }
@@ -190,9 +191,11 @@ where
         match document.build_outline() {
             Some(outline_id) => {
                 println!("  ✅ Outline created with ID: {:?}", outline_id);
-                
+
                 // Get the actual catalog ID from the trailer after renumbering
-                let catalog_id = document.trailer.get(b"Root")
+                let catalog_id = document
+                    .trailer
+                    .get(b"Root")
                     .and_then(|root| root.as_reference())
                     .unwrap_or(catalog_object.0);
                 println!("  📄 Catalog ID: {:?}", catalog_id);
@@ -201,15 +204,18 @@ where
                 match document.get_object(outline_id) {
                     Ok(outline_obj) => {
                         if let Object::Dictionary(mut outline_dict) = outline_obj.clone() {
-                                            // Add Count property (number of bookmarks)
-                                            outline_dict.set("Count", document.bookmarks.len() as i64);
-                        
-                                            // Update the outline object
-                                            if let Ok(obj) = document.get_object_mut(outline_id) {
-                                                *obj = Object::Dictionary(outline_dict);
-                                                println!("  ✅ Enhanced outline with Count: {}", document.bookmarks.len());
-                                            }
-                                        }
+                            // Add Count property (number of bookmarks)
+                            outline_dict.set("Count", document.bookmarks.len() as i64);
+
+                            // Update the outline object
+                            if let Ok(obj) = document.get_object_mut(outline_id) {
+                                *obj = Object::Dictionary(outline_dict);
+                                println!(
+                                    "  ✅ Enhanced outline with Count: {}",
+                                    document.bookmarks.len()
+                                );
+                            }
+                        }
                     }
                     _ => (),
                 }
@@ -247,11 +253,55 @@ where
         }
     }
 
+    fix_tagged_pdf(&mut document)?;
+
+    // Check if StructTreeRoot exists in catalog
+    if let Ok(catalog_dict) = document.catalog() {
+        if let Ok(root) = catalog_dict.get(b"StructTreeRoot") {
+            println!("✅ StructTreeRoot found: {:?}", root);
+        } else {
+            println!("❌ StructTreeRoot missing");
+        }
+    } else {
+        println!("⚠️ Failed to get catalog");
+    }
+
+    // Check trailer for Marked flag
+    if let Ok(marked) = document.trailer.get(b"Marked") {
+        println!("✅ Trailer Marked: {:?}", marked);
+    } else {
+        println!("❌ Trailer does not contain Marked key");
+    }
+
     document.compress();
 
     document.save(output)?;
 
     println!("{:#?}", document.trailer);
+
+    Ok(())
+}
+
+pub fn fix_tagged_pdf(doc: &mut Document) -> lopdf::Result<()> {
+    let has_struct_tree = doc
+        .catalog()
+        .ok()
+        .and_then(|c| c.get(b"StructTreeRoot").ok())
+        .is_some();
+
+    if has_struct_tree {
+        println!("✅ StructTreeRoot found, adding MarkInfo...");
+
+        let mut mark_info = Dictionary::new();
+        mark_info.set("Marked", true);
+
+        doc.trailer.set("MarkInfo", Object::Dictionary(mark_info));
+        doc.trailer.set("Marked", true);
+
+        println!("✅ PDF fixed: now contains /MarkInfo /Marked true");
+    } else {
+        println!("⚠️ StructTreeRoot missing — nothing to fix");
+    }
 
     Ok(())
 }
