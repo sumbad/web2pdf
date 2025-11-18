@@ -176,8 +176,8 @@ async fn main() -> Result<()> {
 
         println!("  ✅ Page created successfully");
 
-        println!("  🧹 Clear page for screen readers...");
-        let js_remove = r#"
+        println!("  🧹 Clean page for screen readers...");
+        let js_remove = /*js*/ r#"
             () => {
                 document.querySelectorAll('.ads, .cookie, .footer, footer').forEach(e => e.remove());
 
@@ -186,8 +186,7 @@ async fn main() -> Result<()> {
                         node.textContent = node.textContent
                             .replace(/[\u200B-\u200D\uFEFF]/g, '')   // zero-width
                             .replace(/\u00A0/g, ' ')                 // non-breaking space
-                            .replace(/\s+/g, ' ')                    // normalize spaces
-                            .trim();
+                            .replace(/\s+/g, ' ');                   // normalize spaces
                     } else if (node.nodeType === Node.ELEMENT_NODE) {
                         node.childNodes.forEach(cleanNodeText);
                     }
@@ -199,7 +198,9 @@ async fn main() -> Result<()> {
 
                 // Remove empty paragraphs
                 document.querySelectorAll('p').forEach(p => {
-                    if (!p.textContent.trim()) p.remove();
+                    if (!p.textContent.trim()) {
+                        p.remove();
+                    }
                 });
                 
                 // Add CSS to prevent text breaking
