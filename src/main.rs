@@ -10,6 +10,12 @@ use tempfile::tempdir;
 mod pdf_utils;
 use pdf_utils::merge_pdfs;
 
+// JavaScript scripts
+const PAGE_WAIT_JS: &str = include_str!("../js/page-wait.js");
+const PAGE_CLEANUP_JS: &str = include_str!("../js/page-cleanup.js");
+const TITLE_EXTRACT_JS: &str = include_str!("../js/title-extract.js");
+const LANG_SET_JS: &str = include_str!("../js/lang-set.js");
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
@@ -37,33 +43,33 @@ async fn main() -> Result<()> {
         num_a.cmp(&num_b)
     });
     let sitemap_links: Vec<&String> = if sitemap_links.is_empty() {
-        println!("  ❌ No sitemap links found, using direct URL");
+        println!("🚨 No sitemap links found, using direct URL");
         vec![&url]
     } else {
         sitemap_links.iter().collect()
     };
     // DEBUG: add cft for tests
     // {
-    //     // -----------------------------
-    //     // ENABLE DETAILED LOGGING
-    //     // -----------------------------
-    //     unsafe {
-    //         std::env::set_var("RUST_LOG", "debug");
-    //         tracing_subscriber::fmt()
-    //             .with_max_level(tracing::Level::DEBUG)
-    //             .with_target(true)
-    //             .with_thread_ids(true)
-    //             .with_file(true)
-    //             .with_line_number(true)
-    //             .init();
-    //     }
+    // -----------------------------
+    // ENABLE DETAILED LOGGING
+    // -----------------------------
+    // unsafe {
+    //     std::env::set_var("RUST_LOG", "debug");
+    //     tracing_subscriber::fmt()
+    //         .with_max_level(tracing::Level::DEBUG)
+    //         .with_target(true)
+    //         .with_thread_ids(true)
+    //         .with_file(true)
+    //         .with_line_number(true)
+    //         .init();
+    // }
     //
-    //     tracing::debug!("Logging initialized successfully");
+    // tracing::debug!("Logging initialized successfully");
     //     sitemap_links[2..3.min(sitemap_links.len())]
     //         .iter()
     //         .collect()
     // };
-    println!("Sitemap links {:#?}", sitemap_links);
+    println!("Convert URLs {:#?}", sitemap_links);
 
     // 🧭 1. Start browser
     tracing::debug!("Configuring browser with path: {}", browser_path);
@@ -154,96 +160,55 @@ async fn main() -> Result<()> {
         };
 
         // Wait for document to be ready
-        let wait_js = r#"
-            () => {
-                return new Promise((resolve) => {
-                    if (document.readyState === 'complete') {
-                        resolve(true);
-                    } else {
-                        window.addEventListener('load', () => resolve(true));
-                        setTimeout(() => resolve(false), 5000); // fallback after 5s
-                    }
-                });
-            }
-        "#;
+        let wait_js = PAGE_WAIT_JS;
 
-        let wait_result: bool = page.evaluate(wait_js).await?.into_value()?;
-        if wait_result {
-            tracing::debug!("Page document is ready");
-        } else {
-            tracing::warn!("Page wait timed out, proceeding anyway");
+        // Wait for page to be ready
+        let mut wait_attempts = 0;
+        let max_attempts = 50; // 5 seconds total
+        
+        loop {
+            let wait_result = page.evaluate_function(wait_js).await?;
+            let is_ready: bool = wait_result.into_value()?;
+            
+            if is_ready {
+                tracing::debug!("Page document is ready");
+                break;
+            } else if wait_attempts >= max_attempts {
+                tracing::warn!("Page wait timed out after 5 seconds, proceeding anyway");
+                break;
+            } else {
+                wait_attempts += 1;
+                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            }
         }
 
         println!("  ✅ Page created successfully");
 
         println!("  🧹 Clean page for screen readers...");
-        let js_remove = /*js*/ r#"
-            () => {
-                document.querySelectorAll('.ads, .cookie, .footer, footer').forEach(e => e.remove());
-
-                function cleanNodeText(node) {
-                    if (node.tagName === 'P') {
-                        node.innerHTML = node.innerHTML
-                            .replace(" <code>", "<code>")
-                            .replace("</code> ", "</code>")
-                    }
-
-                    if (node.nodeType === Node.TEXT_NODE) {
-                        node.textContent = node.textContent
-                            .replace(/[\u200B-\u200D\uFEFF]/g, '')   // zero-width
-                            .replace(/\u00A0/g, ' ')                 // non-breaking space
-                            .replace(/\s+/g, ' ');                   // normalize spaces
-                    } else if (node.nodeType === Node.ELEMENT_NODE) {
-                        node.childNodes.forEach(cleanNodeText);
-                    }
-                }
-
-                document.querySelectorAll('p, div, span, li, h1, h2, h3, h4, h5, h6').forEach(el => {
-                    cleanNodeText(el);
-                });
-
-                // Remove empty paragraphs
-                document.querySelectorAll('p').forEach(p => {
-                    if (!p.textContent.trim()) {
-                        p.remove();
-                    }
-                });
-                
-                // Add CSS to prevent text breaking
-                const style = document.createElement('style');
-                style.innerHTML = `
-                    body {
-                        font-variation-settings: "wght" 400;
-                        font-feature-settings: "kern" 0, "liga" 0, "calt" 0;
-                    }
-                    * {
-                        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif !important;
-                    }
-                    p, li, td, th {
-                        page-break-inside: avoid;
-                        break-inside: avoid;
-                        orphans: 3;
-                        widows: 3;
-                    }
-                `;
-                document.head.appendChild(style);
-                return true;
+        let js_remove_result = page.evaluate_function(PAGE_CLEANUP_JS).await?;
+        tracing::debug!("Executing page cleanup result {js_remove_result:?}");
+        match js_remove_result.into_value::<bool>() {
+            Ok(d) => {
+                tracing::debug!("Page cleanup completed successfully, {d}");
+                println!("  ✅ Page cleaned");
             }
-        "#;
-        tracing::debug!("Executing page cleanup script");
-        let _removed: bool = page.evaluate(js_remove).await?.into_value()?;
-        tracing::debug!("Page cleanup completed successfully");
-        println!("  ✅ Page cleaned");
+            Err(e) => {
+                tracing::warn!("Failed to parse cleanup result: {:?}, but continuing", e);
+                println!("  🚨 Page cleaned (with warnings)");
+            }
+        }
 
         println!("  📝 Extracting page title...");
         // Extract page title
-        let title_js = r#"
-            () => {
-                return document.title || window.location.href;
-            }
-        "#;
+        let title_js = TITLE_EXTRACT_JS;
         tracing::debug!("Executing title extraction script");
-        let title: String = page.evaluate(title_js).await?.into_value()?;
+        let title = match page.evaluate_function(title_js).await?.into_value::<String>() {
+            Ok(title) => title,
+            Err(_) => {
+                tracing::warn!("Failed to extract title, using URL fallback");
+                link.to_string()
+            }
+        };
         tracing::debug!("Extracted title: {}", title);
         let chapter_num = extract_chapter_number(link);
         let title = if chapter_num > 0 {
@@ -253,12 +218,7 @@ async fn main() -> Result<()> {
         };
         println!("  ✅ Title extracted: {}", title);
 
-        let js_add_lang = r#"
-        () => {
-            document.documentElement.lang = document.documentElement.lang || 'en';
-            return document.documentElement.lang;
-        }
-        "#;
+        let js_add_lang = LANG_SET_JS;
 
         page.evaluate(js_add_lang).await?;
 

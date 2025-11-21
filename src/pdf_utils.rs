@@ -201,23 +201,19 @@ where
                 println!("  📄 Catalog ID: {:?}", catalog_id);
 
                 // Ensure the outline object has proper structure
-                match document.get_object(outline_id) {
-                    Ok(outline_obj) => {
-                        if let Object::Dictionary(mut outline_dict) = outline_obj.clone() {
-                            // Add Count property (number of bookmarks)
-                            outline_dict.set("Count", document.bookmarks.len() as i64);
+                if let Ok(outline_obj) = document.get_object(outline_id)
+                    && let Object::Dictionary(mut outline_dict) = outline_obj.clone() {
+                    // Add Count property (number of bookmarks)
+                    outline_dict.set("Count", document.bookmarks.len() as i64);
 
-                            // Update the outline object
-                            if let Ok(obj) = document.get_object_mut(outline_id) {
-                                *obj = Object::Dictionary(outline_dict);
-                                println!(
-                                    "  ✅ Enhanced outline with Count: {}",
-                                    document.bookmarks.len()
-                                );
-                            }
-                        }
+                    // Update the outline object
+                    if let Ok(obj) = document.get_object_mut(outline_id) {
+                        *obj = Object::Dictionary(outline_dict);
+                        println!(
+                            "  ✅ Enhanced outline with Count: {}",
+                            document.bookmarks.len()
+                        );
                     }
-                    _ => (),
                 }
 
                 match document.get_object_mut(catalog_id) {
