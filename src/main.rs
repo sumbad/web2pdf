@@ -182,6 +182,12 @@ async fn main() -> Result<()> {
                 document.querySelectorAll('.ads, .cookie, .footer, footer').forEach(e => e.remove());
 
                 function cleanNodeText(node) {
+                    if (node.tagName === 'P') {
+                        node.innerHTML = node.innerHTML
+                            .replace(" <code>", "<code>")
+                            .replace("</code> ", "</code>")
+                    }
+
                     if (node.nodeType === Node.TEXT_NODE) {
                         node.textContent = node.textContent
                             .replace(/[\u200B-\u200D\uFEFF]/g, '')   // zero-width
