@@ -16,6 +16,8 @@ const PAGE_CLEANUP_JS: &str = include_str!("../js/page-cleanup.js");
 const TITLE_EXTRACT_JS: &str = include_str!("../js/title-extract.js");
 const LANG_SET_JS: &str = include_str!("../js/lang-set.js");
 
+const LOAD_PAGE_TIMEOUT_SEC: u64 = 30;
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
@@ -73,37 +75,9 @@ async fn main() -> Result<()> {
 
     // 🧭 1. Start browser
     tracing::debug!("Configuring browser with path: {}", browser_path);
-    let config = BrowserConfig::builder()
-        .chrome_executable(browser_path)
-        // .with_head()
-        .arg("--disable-web-security")
-        .arg("--disable-features=VizDisplayCompositor")
-        .arg("--disable-font-subpixel-positioning")
-        .arg("--export-tagged-pdf")
-        .arg("--force-renderer-accessibility")
-        .arg("--no-sandbox")
-        .arg("--disable-dev-shm-usage")
-        .arg("--disable-gpu")
-        .arg("--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-        .arg("--disable-blink-features=AutomationControlled")
-        .arg("--no-first-run")
-        .arg("--no-default-browser-check")
-        .arg("--disable-features=ChromeWhatsNewUI,TabHoverCardImages,TabHoverCards,OmniboxOnDeviceHeadSuggestions")
-        .arg("--disable-background-networking")
-        .arg("--disable-renderer-backgrounding")
-        .arg("--disable-client-side-phishing-detection")
-        .arg("--disable-component-update")
-        .arg("--disable-domain-reliability")
-        .arg("--disable-default-apps")
-        .arg("--disable-sync")
-        .arg("--disable-ntp-most-likely-favicons-from-server")
-        .arg("--disable-features=NewTabPage")
-        .arg("--homepage=about:blank")
-        .arg("--new-window")
-        .arg("about:blank")
-        .build()
-        .map_err(|e| anyhow::anyhow!(e))?;
-    tracing::debug!("Browser configuration created, launching...");
+    let config = build_browser_config(&browser_path).map_err(|e| anyhow::anyhow!(e))?;
+    tracing::debug!("Browser configuration created");
+
     tracing::debug!("Launching browser...");
     let (mut browser, mut handler) = Browser::launch(config).await?;
     tracing::debug!("Browser launched successfully");
@@ -138,7 +112,7 @@ async fn main() -> Result<()> {
         println!("  🌐 Creating new page...");
 
         let page = tokio::time::timeout(
-            std::time::Duration::from_secs(30),
+            std::time::Duration::from_secs(LOAD_PAGE_TIMEOUT_SEC),
             browser.new_page((*link).clone()),
         )
         .await;
@@ -146,7 +120,7 @@ async fn main() -> Result<()> {
         let page = match page {
             Ok(p) => p,
             Err(_) => {
-                println!("  ❌ Timeout creating page after 30 seconds");
+                println!("  ❌ Timeout creating page after {LOAD_PAGE_TIMEOUT_SEC} seconds");
                 continue;
             }
         };
@@ -165,11 +139,11 @@ async fn main() -> Result<()> {
         // Wait for page to be ready
         let mut wait_attempts = 0;
         let max_attempts = 50; // 5 seconds total
-        
+
         loop {
             let wait_result = page.evaluate_function(wait_js).await?;
             let is_ready: bool = wait_result.into_value()?;
-            
+
             if is_ready {
                 tracing::debug!("Page document is ready");
                 break;
@@ -202,7 +176,11 @@ async fn main() -> Result<()> {
         // Extract page title
         let title_js = TITLE_EXTRACT_JS;
         tracing::debug!("Executing title extraction script");
-        let title = match page.evaluate_function(title_js).await?.into_value::<String>() {
+        let title = match page
+            .evaluate_function(title_js)
+            .await?
+            .into_value::<String>()
+        {
             Ok(title) => title,
             Err(_) => {
                 tracing::warn!("Failed to extract title, using URL fallback");
@@ -289,6 +267,38 @@ async fn main() -> Result<()> {
     merge_pdfs(pdf_files, output_path)?;
 
     Ok(())
+}
+
+fn build_browser_config(browser_path: &str) -> Result<BrowserConfig, String> {
+    BrowserConfig::builder()
+        .chrome_executable(browser_path)
+        // .with_head()
+        .arg("--disable-web-security")
+        .arg("--disable-features=VizDisplayCompositor")
+        .arg("--disable-font-subpixel-positioning")
+        .arg("--export-tagged-pdf")
+        .arg("--force-renderer-accessibility")
+        .arg("--no-sandbox")
+        .arg("--disable-dev-shm-usage")
+        .arg("--disable-gpu")
+        .arg("--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        .arg("--disable-blink-features=AutomationControlled")
+        .arg("--no-first-run")
+        .arg("--no-default-browser-check")
+        .arg("--disable-features=ChromeWhatsNewUI,TabHoverCardImages,TabHoverCards,OmniboxOnDeviceHeadSuggestions")
+        .arg("--disable-background-networking")
+        .arg("--disable-renderer-backgrounding")
+        .arg("--disable-client-side-phishing-detection")
+        .arg("--disable-component-update")
+        .arg("--disable-domain-reliability")
+        .arg("--disable-default-apps")
+        .arg("--disable-sync")
+        .arg("--disable-ntp-most-likely-favicons-from-server")
+        .arg("--disable-features=NewTabPage")
+        .arg("--homepage=about:blank")
+        .arg("--new-window")
+        .arg("about:blank")
+        .build()
 }
 
 async fn get_sitemap_url(base_url: &String) -> Result<Vec<String>> {
