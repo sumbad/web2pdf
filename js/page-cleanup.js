@@ -32,7 +32,7 @@ function pageCleanup() {
 
   // Clean text in common content elements
   document
-    .querySelectorAll("p, div, span, li, h1, h2, h3, h4, h5, h6")
+    .querySelectorAll("p, td, div, span, li, h1, h2, h3, h4, h5, h6")
     .forEach((el) => {
       cleanNodeText(el);
     });
@@ -49,10 +49,18 @@ function pageCleanup() {
   style.innerHTML = `
         body {
             font-variation-settings: "wght" 400;
-            font-feature-settings: "kern" 0, "liga" 0, "calt" 0;
+            letter-spacing: +0.01em !important;
         }
         * {
-            font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif !important;
+            font-family: Arial, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif !important;
+            font-feature-settings: "kern" 0, "liga" 0, "calt" 0;
+            font-kerning: none !important;
+            font-variant-ligatures: none !important;
+            -webkit-font-variant-ligatures: none !important;
+            text-rendering: optimizeSpeed !important;
+            -webkit-print-color-adjust: exact !important;
+            image-rendering: optimizeQuality;
+            color-adjust: exact;
         }
         p, li, td, th {
             page-break-inside: avoid;
