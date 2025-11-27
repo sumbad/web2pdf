@@ -20,7 +20,10 @@ function pageCleanup() {
         .replace("</code> ", "</code>");
     }
 
-    if (node.nodeType === Node.TEXT_NODE) {
+    if (
+      node.nodeType === Node.TEXT_NODE &&
+      node.parentNode?.tagName !== "CODE"
+    ) {
       node.textContent = node.textContent
         .replace(/[\u200B-\u200D\uFEFF]/g, "") // zero-width characters
         .replace(/\u00A0/g, " ") // non-breaking space
