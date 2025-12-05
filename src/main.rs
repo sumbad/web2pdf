@@ -10,7 +10,9 @@ use tempfile::tempdir;
 mod pdf_utils;
 use pdf_utils::merge_pdfs;
 
-use crate::browser_utils::{build_browser_config, extract_chapter_number, find_browser, get_sitemap_url};
+use crate::browser_utils::{
+    build_browser_config, extract_chapter_number, find_browser, get_sitemap_url,
+};
 
 mod browser_utils;
 
@@ -19,6 +21,7 @@ const PAGE_WAIT_JS: &str = include_str!("../js/page-wait.js");
 const PAGE_CLEANUP_JS: &str = include_str!("../js/page-cleanup.js");
 const TITLE_EXTRACT_JS: &str = include_str!("../js/title-extract.js");
 const LANG_SET_JS: &str = include_str!("../js/lang-set.js");
+const ICONIFY_ICON: &str = include_str!("../js/iconify-icon.js");
 
 const LOAD_PAGE_TIMEOUT_SEC: u64 = 30;
 
@@ -54,7 +57,11 @@ async fn main() -> Result<()> {
     } else {
         sitemap_links.iter().collect()
     };
-    // DEBUG: add cft for tests
+    //     // DEBUG: add cft for tests
+    //     sitemap_links[0..1.min(sitemap_links.len())]
+    //         .iter()
+    //         .collect()
+    // };
     // {
     // -----------------------------
     // ENABLE DETAILED LOGGING
@@ -69,12 +76,8 @@ async fn main() -> Result<()> {
     //         .with_line_number(true)
     //         .init();
     // }
-    //
-    // tracing::debug!("Logging initialized successfully");
-    //     sitemap_links[2..3.min(sitemap_links.len())]
-    //         .iter()
-    //         .collect()
-    // };
+
+    tracing::debug!("Logging initialized successfully");
     println!("Convert URLs {:#?}", sitemap_links);
 
     // 🧭 1. Start browser
@@ -204,6 +207,8 @@ async fn main() -> Result<()> {
 
         page.evaluate(js_add_lang).await?;
 
+        page.evaluate(ICONIFY_ICON).await?;
+
         println!("  🖨️ Generating PDF...");
         tracing::debug!("Configuring PDF generation options");
         // let pdf_opts = PrintToPdfParams::default();
@@ -260,6 +265,8 @@ async fn main() -> Result<()> {
 
         pdf_files.push((pdf_path, title));
         println!("  ✅ Page processing complete\n");
+
+        // tokio::time::sleep(Duration::from_millis(10000)).await;
     }
 
     browser.close().await?;

@@ -31,6 +31,10 @@ pub fn build_browser_config(browser_path: &str) -> Result<BrowserConfig, String>
         .arg("--homepage=about:blank")
         .arg("--new-window")
         .arg("about:blank")
+        // wait until the page is fully loaded before printing
+        // .arg("--run-all-compositor-stages-before-draw")
+        // .arg("--virtual-time-budget=10000")
+        //
         .build()
 }
 
