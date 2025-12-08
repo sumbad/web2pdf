@@ -1,6 +1,6 @@
 # Web2PDF
 
-A Rust command-line utility for converting websites to a single PDF document. It fetches a site via sitemap, converts each page to PDF using headless Chrome, and merges all pages into one file.
+A command-line utility for converting websites to a PDF document. It fetches a site via sitemap, converts each page to PDF using headless Chrome, and merges all pages into one file.
 
 ## Features
 

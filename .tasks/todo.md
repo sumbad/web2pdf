@@ -1,7 +1,8 @@
-### Settings
-- [ ] fix icons (see iconify-icon)
+## Features
 - [ ] should be able to turn on/off some features: system fonts, removing empty paragraphs, etc.
 - [ ] use [How to Create Printer-friendly Pages with CSS](https://www.sitepoint.com/css-printer-friendly-pages/)
+
+## Bugs
+- [x] fix icons (see iconify-icon)
 - [x] fix code blocks printing (see 5.4, Listing 13)
 - [x] remove background
-
