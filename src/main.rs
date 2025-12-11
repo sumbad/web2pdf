@@ -29,11 +29,18 @@ const LOAD_PAGE_TIMEOUT_SEC: u64 = 30;
 async fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
     if args.len() < 3 {
-        eprintln!("Usage: {} <URL> <output.pdf>", args[0]);
+        eprintln!("Usage: {} [--debug] <URL> <output.pdf>", args[0]);
         std::process::exit(1);
     }
-    let url = &args[1];
-    let output = &args[2];
+
+    let mut arg_idx = 1;
+    let debug_mode = args.get(arg_idx) == Some(&"--debug".to_string());
+    if debug_mode {
+        arg_idx += 1;
+    }
+
+    let url = &args[arg_idx];
+    let output = &args[arg_idx + 1];
 
     let browser_path = find_browser().context("Browser not found!")?;
     println!("Use browser: {}", browser_path);
@@ -51,31 +58,39 @@ async fn main() -> Result<()> {
         let num_b = extract_chapter_number(b);
         num_a.cmp(&num_b)
     });
+    // Initialize logging based on debug flag
+    if debug_mode {
+        unsafe {
+            std::env::set_var("RUST_LOG", "debug");
+        }
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::DEBUG)
+            .with_target(true)
+            .with_thread_ids(true)
+            .with_file(true)
+            .with_line_number(true)
+            .init();
+        println!("🐛 Debug mode enabled");
+    } else {
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::INFO)
+            .init();
+    }
+
     let sitemap_links: Vec<&String> = if sitemap_links.is_empty() {
         println!("🚨 No sitemap links found, using direct URL");
         vec![&url]
     } else {
-        sitemap_links.iter().collect()
+        // Limit to first 3 links in debug mode
+        if debug_mode {
+            println!("🐛 Debug mode: limiting to first 3 pages");
+            sitemap_links[0..3.min(sitemap_links.len())]
+                .iter()
+                .collect()
+        } else {
+            sitemap_links.iter().collect()
+        }
     };
-    //     // DEBUG: add cft for tests
-    //     sitemap_links[0..1.min(sitemap_links.len())]
-    //         .iter()
-    //         .collect()
-    // };
-    // {
-    // -----------------------------
-    // ENABLE DETAILED LOGGING
-    // -----------------------------
-    // unsafe {
-    //     std::env::set_var("RUST_LOG", "debug");
-    //     tracing_subscriber::fmt()
-    //         .with_max_level(tracing::Level::DEBUG)
-    //         .with_target(true)
-    //         .with_thread_ids(true)
-    //         .with_file(true)
-    //         .with_line_number(true)
-    //         .init();
-    // }
 
     tracing::debug!("Logging initialized successfully");
     println!("Convert URLs {:#?}", sitemap_links);
