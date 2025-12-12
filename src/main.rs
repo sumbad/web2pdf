@@ -224,6 +224,8 @@ async fn main() -> Result<()> {
 
         page.evaluate(ICONIFY_ICON).await?;
 
+        // tokio::time::sleep(std::time::Duration::from_millis(10000)).await;
+
         println!("  🖨️ Generating PDF...");
         tracing::debug!("Configuring PDF generation options");
         // let pdf_opts = PrintToPdfParams::default();
@@ -280,8 +282,6 @@ async fn main() -> Result<()> {
 
         pdf_files.push((pdf_path, title));
         println!("  ✅ Page processing complete\n");
-
-        // tokio::time::sleep(Duration::from_millis(10000)).await;
     }
 
     browser.close().await?;

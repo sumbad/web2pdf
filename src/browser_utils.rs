@@ -5,7 +5,6 @@ use std::path::Path;
 pub fn build_browser_config(browser_path: &str) -> Result<BrowserConfig, String> {
     BrowserConfig::builder()
         .chrome_executable(browser_path)
-        // .with_head()
         .arg("--disable-web-security")
         .arg("--disable-features=VizDisplayCompositor")
         .arg("--disable-font-subpixel-positioning")
@@ -13,7 +12,6 @@ pub fn build_browser_config(browser_path: &str) -> Result<BrowserConfig, String>
         .arg("--force-renderer-accessibility")
         .arg("--no-sandbox")
         .arg("--disable-dev-shm-usage")
-        .arg("--disable-gpu")
         .arg("--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         .arg("--disable-blink-features=AutomationControlled")
         .arg("--no-first-run")
@@ -31,9 +29,12 @@ pub fn build_browser_config(browser_path: &str) -> Result<BrowserConfig, String>
         .arg("--homepage=about:blank")
         .arg("--new-window")
         .arg("about:blank")
-        // wait until the page is fully loaded before printing
+        .with_head()
+        // wait until the page is fully loaded before printing only with head
         // .arg("--run-all-compositor-stages-before-draw")
         // .arg("--virtual-time-budget=10000")
+        // .arg("--disable-gpu")
+        // .arg("--headless=new")
         //
         .build()
 }
