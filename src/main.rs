@@ -5,7 +5,7 @@ use futures::StreamExt;
 
 use std::env;
 use std::path::PathBuf;
-use tempfile::tempdir;
+use tempfile::{TempDir, tempdir};
 
 mod pdf_utils;
 use pdf_utils::merge_pdfs;
@@ -22,6 +22,7 @@ const PAGE_CLEANUP_JS: &str = include_str!("../js/page-cleanup.js");
 const TITLE_EXTRACT_JS: &str = include_str!("../js/title-extract.js");
 const LANG_SET_JS: &str = include_str!("../js/lang-set.js");
 const ICONIFY_ICON: &str = include_str!("../js/iconify-icon.js");
+const PREPARE_HABR: &str = include_str!("../js/prepare-habr.js");
 
 const LOAD_PAGE_TIMEOUT_SEC: u64 = 30;
 
@@ -129,159 +130,7 @@ async fn main() -> Result<()> {
 
     // 🌀 3. Process each page
     for (i, link) in sitemap_links.iter().enumerate() {
-        println!("→ [{}/{}] Processing {}", i + 1, sitemap_links.len(), link);
-
-        println!("  🌐 Creating new page...");
-
-        let page = tokio::time::timeout(
-            std::time::Duration::from_secs(LOAD_PAGE_TIMEOUT_SEC),
-            browser.new_page((*link).clone()),
-        )
-        .await;
-
-        let page = match page {
-            Ok(p) => p,
-            Err(_) => {
-                println!("  ❌ Timeout creating page after {LOAD_PAGE_TIMEOUT_SEC} seconds");
-                continue;
-            }
-        };
-
-        let page = match page {
-            Ok(p) => p,
-            Err(e) => {
-                println!("  ❌ Failed to create page: {}", e);
-                continue;
-            }
-        };
-
-        // Wait for document to be ready
-        let wait_js = PAGE_WAIT_JS;
-
-        // Wait for page to be ready
-        let mut wait_attempts = 0;
-        let max_attempts = 50; // 5 seconds total
-
-        loop {
-            let wait_result = page.evaluate_function(wait_js).await?;
-            let is_ready: bool = wait_result.into_value()?;
-
-            if is_ready {
-                tracing::debug!("Page document is ready");
-                break;
-            } else if wait_attempts >= max_attempts {
-                tracing::warn!("Page wait timed out after 5 seconds, proceeding anyway");
-                break;
-            } else {
-                wait_attempts += 1;
-                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-            }
-        }
-
-        println!("  ✅ Page created successfully");
-
-        println!("  🧹 Clean page for screen readers...");
-        let js_remove_result = page.evaluate_function(PAGE_CLEANUP_JS).await?;
-        tracing::debug!("Executing page cleanup result {js_remove_result:?}");
-        match js_remove_result.into_value::<bool>() {
-            Ok(d) => {
-                tracing::debug!("Page cleanup completed successfully, {d}");
-                println!("  ✅ Page cleaned");
-            }
-            Err(e) => {
-                tracing::warn!("Failed to parse cleanup result: {:?}, but continuing", e);
-                println!("  🚨 Page cleaned (with warnings)");
-            }
-        }
-
-        println!("  📝 Extracting page title...");
-        // Extract page title
-        let title_js = TITLE_EXTRACT_JS;
-        tracing::debug!("Executing title extraction script");
-        let title = match page
-            .evaluate_function(title_js)
-            .await?
-            .into_value::<String>()
-        {
-            Ok(title) => title,
-            Err(_) => {
-                tracing::warn!("Failed to extract title, using URL fallback");
-                link.to_string()
-            }
-        };
-        tracing::debug!("Extracted title: {}", title);
-        let chapter_num = extract_chapter_number(link);
-        let title = if chapter_num > 0 {
-            format!("Chapter {} - {}", chapter_num, title)
-        } else {
-            title
-        };
-        println!("  ✅ Title extracted: {}", title);
-
-        let js_add_lang = LANG_SET_JS;
-
-        page.evaluate(js_add_lang).await?;
-
-        page.evaluate(ICONIFY_ICON).await?;
-
-        // tokio::time::sleep(std::time::Duration::from_millis(10000)).await;
-
-        println!("  🖨️ Generating PDF...");
-        tracing::debug!("Configuring PDF generation options");
-        // let pdf_opts = PrintToPdfParams::default();
-        let pdf_opts = PrintToPdfParams {
-            generate_tagged_pdf: Some(true),
-            scale: Some(1.0),
-            print_background: Some(false),
-            prefer_css_page_size: Some(true),
-            ..Default::default()
-        };
-        tracing::debug!(
-            "PDF options: tagged={}, scale={}, background={}, css_size={}",
-            pdf_opts.generate_tagged_pdf.unwrap_or(false),
-            pdf_opts.scale.unwrap_or(0.0),
-            pdf_opts.print_background.unwrap_or(false),
-            pdf_opts.prefer_css_page_size.unwrap_or(false)
-        );
-        let pdf_path = dir.path().join(format!("page_{:04}.pdf", i));
-        // pdf_opts.generate_document_outline = Some(true);
-
-        println!("  💾 Saving PDF to {}...", pdf_path.display());
-        let save_result = tokio::time::timeout(
-            std::time::Duration::from_secs(10),
-            page.save_pdf(pdf_opts, &pdf_path),
-        )
-        .await;
-
-        match save_result {
-            Ok(Ok(_)) => {
-                tracing::debug!("PDF saved successfully to: {}", pdf_path.display());
-                println!("  ✅ PDF saved successfully");
-            }
-            Ok(Err(e)) => {
-                tracing::error!("Failed to save PDF: {}", e);
-                println!("  ❌ Failed to save PDF: {}", e);
-                continue;
-            }
-            Err(_) => {
-                tracing::error!("Timeout saving PDF after 10 seconds");
-                println!("  ❌ Timeout saving PDF after 60 seconds");
-                continue;
-            }
-        }
-
-        match std::fs::metadata(&pdf_path) {
-            Ok(metadata) => {
-                println!("  📊 PDF size: {} bytes", metadata.len());
-            }
-            Err(e) => {
-                println!("  ❌ Failed to get PDF metadata: {}", e);
-                continue;
-            }
-        }
-
-        pdf_files.push((pdf_path, title));
-        println!("  ✅ Page processing complete\n");
+        process_page(i, &sitemap_links, link, &browser, &dir, &mut pdf_files).await?;
     }
 
     browser.close().await?;
@@ -291,6 +140,182 @@ async fn main() -> Result<()> {
     let output_path = PathBuf::from(output);
     println!("📚 Merging {} PDFs into {}", pdf_files.len(), output);
     merge_pdfs(pdf_files, output_path)?;
+
+    Ok(())
+}
+
+///
+/// Processing a web page
+///
+async fn process_page(
+    index: usize,
+    sitemap_links: &[&String],
+    link: &String,
+    browser: &Browser,
+    dir: &TempDir,
+    pdf_files: &mut Vec<(PathBuf, String)>,
+) -> Result<()> {
+    println!(
+        "→ [{}/{}] Processing {}",
+        index + 1,
+        sitemap_links.len(),
+        link
+    );
+
+    println!("  🌐 Creating new page...");
+
+    let page = tokio::time::timeout(
+        std::time::Duration::from_secs(LOAD_PAGE_TIMEOUT_SEC),
+        browser.new_page((*link).clone()),
+    )
+    .await;
+
+    let page = match page {
+        Ok(p) => p,
+        Err(_) => {
+            println!("  ❌ Timeout creating page after {LOAD_PAGE_TIMEOUT_SEC} seconds");
+            return Ok(());
+        }
+    };
+
+    let page = match page {
+        Ok(p) => p,
+        Err(e) => {
+            println!("  ❌ Failed to create page: {}", e);
+            return Ok(());
+        }
+    };
+
+    // Wait for document to be ready
+    let wait_js = PAGE_WAIT_JS;
+
+    // Wait for page to be ready
+    let mut wait_attempts = 0;
+    let max_attempts = 50; // 5 seconds total
+
+    loop {
+        let wait_result = page.evaluate_function(wait_js).await?;
+        let is_ready: bool = wait_result.into_value()?;
+
+        if is_ready {
+            tracing::debug!("Page document is ready");
+            break;
+        } else if wait_attempts >= max_attempts {
+            tracing::warn!("Page wait timed out after 5 seconds, proceeding anyway");
+            break;
+        } else {
+            wait_attempts += 1;
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        }
+    }
+
+    println!("  ✅ Page created successfully");
+
+    println!("  🧹 Clean page for screen readers...");
+    let js_remove_result = page.evaluate_function(PAGE_CLEANUP_JS).await?;
+    tracing::debug!("Executing page cleanup result {js_remove_result:?}");
+    match js_remove_result.into_value::<bool>() {
+        Ok(d) => {
+            tracing::debug!("Page cleanup completed successfully, {d}");
+            println!("  ✅ Page cleaned");
+        }
+        Err(e) => {
+            tracing::warn!("Failed to parse cleanup result: {:?}, but continuing", e);
+            println!("  🚨 Page cleaned (with warnings)");
+        }
+    }
+
+    println!("  📝 Extracting page title...");
+    // Extract page title
+    let title_js = TITLE_EXTRACT_JS;
+    tracing::debug!("Executing title extraction script");
+    let title = match page
+        .evaluate_function(title_js)
+        .await?
+        .into_value::<String>()
+    {
+        Ok(title) => title,
+        Err(_) => {
+            tracing::warn!("Failed to extract title, using URL fallback");
+            link.to_string()
+        }
+    };
+    tracing::debug!("Extracted title: {}", title);
+    let chapter_num = extract_chapter_number(link);
+    let title = if chapter_num > 0 {
+        format!("Chapter {} - {}", chapter_num, title)
+    } else {
+        title
+    };
+    println!("  ✅ Title extracted: {}", title);
+
+    page.evaluate(LANG_SET_JS).await?;
+
+    page.evaluate(ICONIFY_ICON).await?;
+
+    if link.starts_with("https://habr.com") {
+        println!("  🏗️ : PREPARE_HABR");
+        page.evaluate(PREPARE_HABR).await?;
+    }
+
+    // tokio::time::sleep(std::time::Duration::from_millis(10000)).await;
+
+    println!("  🖨️ Generating PDF...");
+    tracing::debug!("Configuring PDF generation options");
+    // let pdf_opts = PrintToPdfParams::default();
+    let pdf_opts = PrintToPdfParams {
+        generate_tagged_pdf: Some(true),
+        scale: Some(1.0),
+        print_background: Some(false),
+        prefer_css_page_size: Some(true),
+        ..Default::default()
+    };
+    tracing::debug!(
+        "PDF options: tagged={}, scale={}, background={}, css_size={}",
+        pdf_opts.generate_tagged_pdf.unwrap_or(false),
+        pdf_opts.scale.unwrap_or(0.0),
+        pdf_opts.print_background.unwrap_or(false),
+        pdf_opts.prefer_css_page_size.unwrap_or(false)
+    );
+    let pdf_path = dir.path().join(format!("page_{:04}.pdf", index));
+    // pdf_opts.generate_document_outline = Some(true);
+
+    println!("  💾 Saving PDF to {}...", pdf_path.display());
+    let save_result = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        page.save_pdf(pdf_opts, &pdf_path),
+    )
+    .await;
+
+    match save_result {
+        Ok(Ok(_)) => {
+            tracing::debug!("PDF saved successfully to: {}", pdf_path.display());
+            println!("  ✅ PDF saved successfully");
+        }
+        Ok(Err(e)) => {
+            tracing::error!("Failed to save PDF: {}", e);
+            println!("  ❌ Failed to save PDF: {}", e);
+            return Ok(());
+        }
+        Err(_) => {
+            tracing::error!("Timeout saving PDF after 10 seconds");
+            println!("  ❌ Timeout saving PDF after 60 seconds");
+            return Ok(());
+        }
+    }
+
+    match std::fs::metadata(&pdf_path) {
+        Ok(metadata) => {
+            println!("  📊 PDF size: {} bytes", metadata.len());
+        }
+        Err(e) => {
+            println!("  ❌ Failed to get PDF metadata: {}", e);
+            return Ok(());
+        }
+    }
+
+    pdf_files.push((pdf_path, title));
+    println!("  ✅ Page processing complete\n");
 
     Ok(())
 }
