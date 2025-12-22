@@ -58,7 +58,16 @@ cargo run -- https://example.com site.pdf
 ```
 src/
 ├── main.rs       # Main application logic
+├── browser_utils.rs # Browser utilities
 └── pdf_utils.rs  # PDF manipulation utilities
+js/
+├── flatten-shadow-dom.js # Shadow DOM handling
+├── iconify-icon.js      # Iconify icon handling
+├── lang-set.js          # Language setting
+├── page-cleanup.js      # Page cleanup
+├── page-wait.js         # Page waiting
+├── prepare-habr.js      # Habr page preparation
+└── title-extract.js     # Title extraction
 ```
 
 ### Build and testing
