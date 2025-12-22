@@ -102,8 +102,6 @@ cargo clippy -- -D warnings
 
 ## Limitations
 
-- Current version processes only the first 2 pages from sitemap
-- Requires installed Chromium or Chrome
 - Some JavaScript-heavy sites may not render correctly
 
 ## License
