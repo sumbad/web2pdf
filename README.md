@@ -1,5 +1,7 @@
 # Web2PDF
 
+English | [Русский](./README_RU.md)
+
 A command-line utility for converting websites to a PDF document. It fetches a site via sitemap, converts each page to PDF using headless Chrome, and merges all pages into one file.
 
 ## Features
