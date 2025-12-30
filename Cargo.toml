@@ -3,7 +3,12 @@ name = "web2pdf"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "web2pdf"
+path = "src/main.rs"
+
 [dependencies]
+openssl = { version = "0.10", features = ["vendored"] }
 anyhow = "1.0.100"
 chromiumoxide = "0.8.0"
 futures = "0.3.31"
