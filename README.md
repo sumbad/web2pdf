@@ -22,10 +22,12 @@ A command-line utility for converting websites to a PDF document. It fetches a s
 
 ```bash
 # Linux / macOS (via install.sh)
-curl --proto '=https' --tlsv1.2 -sSf https://github.com/sumbad/web2pdf/releases/latest/download/web2pdf-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sumbad/web2pdf/releases/latest/download/web2pdf-installer.sh | sh
+```
 
+```bash
 # Windows (via install.ps1)
-irm https://github.com/sumbad/web2pdf/releases/latest/download/web2pdf-installer.ps1 | iex
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/sumbad/web2pdf/releases/latest/download/web2pdf-installer.ps1 | iex"
 ```
 
 ### Download prebuilt binaries
