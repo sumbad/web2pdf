@@ -2,12 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
-## [0.1.0] - 2025-30-12
+## [0.1.1] - 2026-01-12
+
+### Added
+- cargo-dist integration for automated releases
+- Shell installer (install.sh) for Linux and macOS
+- PowerShell installer (install.ps1) for Windows
+- Prebuilt binaries for multiple platforms (macOS Intel/ARM64, Linux x86_64, Windows x86_64)
+- `cargo install --git` installation method
+
+### Changed
+- Updated installation documentation with new installation methods
+- Updated usage examples to use `web2pdf` command directly instead of `cargo run`
+
+## [0.1.0] - 2025-12-30
 
 ### Added
 - Initial release of web2pdf CLI tool
