@@ -16,33 +16,44 @@
 
 ### Требования
 
-- Rust 2024+
 - Chromium или Google Chrome
 
-### Сборка из исходников
+### Использование установщиков
 
 ```bash
-git clone <URL репозитория>
-cd web2pdf
-cargo build --release
+# Linux / macOS (через install.sh)
+curl --proto '=https' --tlsv1.2 -sSf https://github.com/sumbad/web2pdf/releases/latest/download/web2pdf-installer.sh | sh
+
+# Windows (через install.ps1)
+irm https://github.com/sumbad/web2pdf/releases/latest/download/web2pdf-installer.ps1 | iex
 ```
+
+### Использование cargo install (для пользователей Rust)
+
+```bash
+cargo install --git https://github.com/sumbad/web2pdf.git web2pdf
+```
+
+### Скачивание готовых бинарных файлов
+
+Готовые бинарные файлы доступны на странице [GitHub Releases](https://github.com/sumbad/web2pdf/releases) для:
+- macOS (Intel и Apple Silicon)
+- Linux (x86_64)
+- Windows (x86_64)
 
 ## Использование
 
 ### Базовый синтаксис
 
 ```bash
-cargo run -- <URL> <выходной.pdf>
+web2pdf <URL> <выходной.pdf>
 ```
 
 ### Примеры
 
 ```bash
 # Конвертировать веб-сайт в PDF
-cargo run -- https://example.com site.pdf
-
-# Использование оптимизированной сборки
-./target/release/web2pdf https://example.com site.pdf
+web2pdf https://example.com site.pdf
 ```
 
 ### Как это работает

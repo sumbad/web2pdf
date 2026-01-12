@@ -16,33 +16,45 @@ A command-line utility for converting websites to a PDF document. It fetches a s
 
 ### Requirements
 
-- Rust 2024+
 - Chromium or Google Chrome
 
-### Build from source
+### Using installers
 
 ```bash
-git clone <repository-url>
-cd web2pdf
-cargo build --release
+# Linux / macOS (via install.sh)
+curl --proto '=https' --tlsv1.2 -sSf https://github.com/sumbad/web2pdf/releases/latest/download/web2pdf-installer.sh | sh
+
+# Windows (via install.ps1)
+irm https://github.com/sumbad/web2pdf/releases/latest/download/web2pdf-installer.ps1 | iex
 ```
+
+### Download prebuilt binaries
+
+Prebuilt binaries are available from the [GitHub Releases](https://github.com/sumbad/web2pdf/releases) page for:
+- macOS (Intel and Apple Silicon)
+- Linux (x86_64)
+- Windows (x86_64)
+
+### Using cargo install (Rust users)
+
+```bash
+cargo install --git https://github.com/sumbad/web2pdf.git web2pdf
+```
+
 
 ## Usage
 
 ### Basic syntax
 
 ```bash
-cargo run -- <URL> <output.pdf>
+web2pdf <URL> <output.pdf>
 ```
 
 ### Examples
 
 ```bash
 # Convert website to PDF
-cargo run -- https://example.com site.pdf
-
-# Using optimized build
-./target/release/web2pdf https://example.com site.pdf
+web2pdf https://example.com site.pdf
 ```
 
 ### How it works
