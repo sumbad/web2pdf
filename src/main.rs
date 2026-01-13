@@ -10,11 +10,10 @@ use tempfile::{TempDir, tempdir};
 mod pdf_utils;
 use pdf_utils::merge_pdfs;
 
-use crate::browser_utils::{
-    build_browser_config, extract_chapter_number, find_browser, get_sitemap_url,
-};
-
 mod browser_utils;
+use crate::browser_utils::{build_browser_config, find_browser};
+
+mod toc;
 
 // JavaScript scripts
 const PAGE_WAIT_JS: &str = include_str!("../js/page-wait.js");
@@ -46,19 +45,6 @@ async fn main() -> Result<()> {
     let browser_path = find_browser().context("Browser not found!")?;
     println!("Use browser: {}", browser_path);
 
-    tracing::debug!("Fetching sitemap for URL: {}", url);
-    let sitemap_links = get_sitemap_url(url).await?;
-    tracing::info!("Found {} sitemap links", sitemap_links.len());
-    let sitemap_blacklist = ["subscribe", "errata", "colophon"];
-    let mut sitemap_links: Vec<String> = sitemap_links
-        .into_iter()
-        .filter(|url| !sitemap_blacklist.iter().any(|bad| url.contains(bad)))
-        .collect();
-    sitemap_links.sort_by(|a, b| {
-        let num_a = extract_chapter_number(a);
-        let num_b = extract_chapter_number(b);
-        num_a.cmp(&num_b)
-    });
     // Initialize logging based on debug flag
     if debug_mode {
         unsafe {
@@ -78,23 +64,17 @@ async fn main() -> Result<()> {
             .init();
     }
 
-    let sitemap_links: Vec<&String> = if sitemap_links.is_empty() {
-        println!("🚨 No sitemap links found, using direct URL");
-        vec![&url]
+    let mut toc = toc::parse_toc(url).await?;
+
+    // Limit in debug mode
+    toc = if debug_mode {
+        println!("🐛 Debug mode: limiting to first 3 pages");
+        toc[0..3.min(toc.len())].iter().cloned().collect()
     } else {
-        // Limit to first 3 links in debug mode
-        if debug_mode {
-            println!("🐛 Debug mode: limiting to first 3 pages");
-            sitemap_links[0..3.min(sitemap_links.len())]
-                .iter()
-                .collect()
-        } else {
-            sitemap_links.iter().collect()
-        }
+        toc
     };
 
-    tracing::debug!("Logging initialized successfully");
-    println!("Convert URLs {:#?}", sitemap_links);
+    println!("TOC {:#?}", toc);
 
     // 🧭 1. Start browser
     tracing::debug!("Configuring browser with path: {}", browser_path);
@@ -129,8 +109,15 @@ async fn main() -> Result<()> {
     let mut pdf_files: Vec<(PathBuf, String)> = Vec::new();
 
     // 🌀 3. Process each page
-    for (i, link) in sitemap_links.iter().enumerate() {
-        process_page(i, &sitemap_links, link, &browser, &dir, &mut pdf_files).await?;
+    for (i, node) in toc.iter().enumerate() {
+        println!(
+            "→ [{}/{}] Processing {}",
+            i + 1,
+            toc.len(), // TODO: count children as well
+            node.href
+        );
+
+        process_page(i, &node.href, &browser, &dir, &mut pdf_files).await?;
     }
 
     browser.close().await?;
@@ -149,19 +136,11 @@ async fn main() -> Result<()> {
 ///
 async fn process_page(
     index: usize,
-    sitemap_links: &[&String],
     link: &String,
     browser: &Browser,
     dir: &TempDir,
     pdf_files: &mut Vec<(PathBuf, String)>,
 ) -> Result<()> {
-    println!(
-        "→ [{}/{}] Processing {}",
-        index + 1,
-        sitemap_links.len(),
-        link
-    );
-
     println!("  🌐 Creating new page...");
 
     let page = tokio::time::timeout(
@@ -225,6 +204,7 @@ async fn process_page(
         }
     }
 
+    // TODO: collect title inside TocNode
     println!("  📝 Extracting page title...");
     // Extract page title
     let title_js = TITLE_EXTRACT_JS;
@@ -241,7 +221,7 @@ async fn process_page(
         }
     };
     tracing::debug!("Extracted title: {}", title);
-    let chapter_num = extract_chapter_number(link);
+    let chapter_num = toc::extract_chapter_number(link);
     let title = if chapter_num > 0 {
         format!("Chapter {} - {}", chapter_num, title)
     } else {
