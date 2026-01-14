@@ -64,7 +64,7 @@ async fn main() -> Result<()> {
             .init();
     }
 
-    let mut toc = toc::parse_toc(url).await?;
+    let mut toc = toc::generate_toc(url).await?;
 
     // Limit in debug mode
     toc = if debug_mode {
