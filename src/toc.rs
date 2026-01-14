@@ -1,4 +1,6 @@
 use anyhow::{Context, Result};
+use scraper::{ElementRef, Html, Selector};
+use url::Url;
 
 #[derive(Debug, Clone)]
 pub struct TocNode {
@@ -7,13 +9,112 @@ pub struct TocNode {
     pub children: Vec<TocNode>,
 }
 
-pub async fn parse_toc(url: &String) -> Result<Vec<TocNode>> {
-    toc_from_sitemap(url).await
+///
+/// Generate Table of contents by some URL
+/// It will find a sitemap if it is or parse a navbar, sidebar, etc.
+///
+pub async fn generate_toc(url: &String) -> Result<Vec<TocNode>> {
+    // Try to use sitemap for TOC
+    if let Some(t) = toc_from_sitemap(url).await? {
+        return Ok(t);
+    }
+
+    // Try to use navbar for TOC
+    if let Some(t) = toc_from_navbar(url).await? {
+        return Ok(t);
+    }
+
+    Ok(vec![TocNode {
+        title: None,
+        href: url.to_string(),
+        children: vec![],
+    }])
 }
 
-async fn toc_from_sitemap(url: &String) -> Result<Vec<TocNode>> {
+async fn toc_from_navbar(url: &String) -> Result<Option<Vec<TocNode>>> {
+    let html = reqwest::get(url).await?.text().await?;
+
+    let base_url = Url::parse(url)?;
+
+    // TODO: support different navbars
+
+    match parse_mdbook_toc(&html, &base_url) {
+        Ok(t) => Ok(Some(t)),
+        Err(e) => {
+            println!("{:?}", e);
+            Ok(None)
+        }
+    }
+}
+
+fn parse_mdbook_toc(html: &str, base_url: &Url) -> Result<Vec<TocNode>> {
+    let document = Html::parse_document(html);
+
+    let sidebar_selector = Selector::parse("nav#sidebar ol.chapter").expect("valid selector");
+
+    let ol = document
+        .select(&sidebar_selector)
+        .next()
+        .context("mdBook TOC not found: nav#sidebar ol.chapter")?;
+
+    parse_ol(ol, base_url)
+}
+
+fn parse_ol(ol: ElementRef, base_url: &Url) -> Result<Vec<TocNode>> {
+    let li_selector = Selector::parse(":scope > li").expect("valid selector");
+
+    let mut nodes = Vec::new();
+
+    for li in ol.select(&li_selector) {
+        if let Some(node) = parse_li(li, base_url)? {
+            nodes.push(node);
+        }
+    }
+
+    Ok(nodes)
+}
+
+fn parse_li(li: ElementRef, base_url: &Url) -> Result<Option<TocNode>> {
+    let a_selector = Selector::parse(":scope > a").expect("valid selector");
+    let ol_selector = Selector::parse(":scope > ol").expect("valid selector");
+
+    let a = match li.select(&a_selector).next() {
+        Some(a) => a,
+        None => return Ok(None), // разделители, пустые li
+    };
+
+    let title = a.text().collect::<String>().trim().to_string();
+
+    let href_raw = a.value().attr("href").context("TOC link without href")?;
+
+    // mdBook использует относительные ссылки
+    let href = base_url
+        .join(href_raw)
+        .context("invalid TOC href")?
+        .to_string();
+
+    let children = if let Some(child_ol) = li.select(&ol_selector).next() {
+        parse_ol(child_ol, base_url)?
+    } else {
+        Vec::new()
+    };
+
+    Ok(Some(TocNode {
+        title: Some(title),
+        href,
+        children,
+    }))
+}
+
+async fn toc_from_sitemap(url: &String) -> Result<Option<Vec<TocNode>>> {
     tracing::debug!("Fetching TOC from a sitemap for URL: {}", url);
     let sitemap_links = get_sitemap_url(url).await?;
+
+    if sitemap_links.is_empty() {
+        println!("No sitemap links found");
+        return Ok(None);
+    }
+
     tracing::info!("Found {} sitemap links", sitemap_links.len());
 
     let sitemap_blacklist = ["subscribe", "errata", "colophon"];
@@ -27,13 +128,6 @@ async fn toc_from_sitemap(url: &String) -> Result<Vec<TocNode>> {
         num_a.cmp(&num_b)
     });
 
-    let sitemap_links: Vec<String> = if sitemap_links.is_empty() {
-        println!("🚨 No sitemap links found, using direct URL");
-        vec![url.to_string()]
-    } else {
-        sitemap_links.iter().cloned().collect()
-    };
-
     let mut nodes: Vec<TocNode> = Vec::new();
 
     for href in sitemap_links {
@@ -44,7 +138,7 @@ async fn toc_from_sitemap(url: &String) -> Result<Vec<TocNode>> {
         });
     }
 
-    Ok(nodes)
+    Ok(Some(nodes))
 }
 
 async fn get_sitemap_url(base_url: &String) -> Result<Vec<String>> {
