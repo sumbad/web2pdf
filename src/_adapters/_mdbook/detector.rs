@@ -1,6 +1,6 @@
 use scraper::Selector;
 
-use crate::adapters::traits::ResourceDetector;
+use crate::_adapter_registry::traits::ResourceDetector;
 
 #[derive(Default, Debug)]
 pub struct MdBookDetector;
@@ -21,16 +21,28 @@ impl ResourceDetector for MdBookDetector {
         let mut score = 0;
 
         // TOC structure
-        if doc.select(&Selector::parse("ul.chapter").unwrap()).next().is_some() {
+        if doc
+            .select(&Selector::parse("ul.chapter").unwrap())
+            .next()
+            .is_some()
+        {
             score += 2;
         }
 
-        if doc.select(&Selector::parse("li.chapter-item").unwrap()).next().is_some() {
+        if doc
+            .select(&Selector::parse("li.chapter-item").unwrap())
+            .next()
+            .is_some()
+        {
             score += 2;
         }
 
         // Main content
-        if doc.select(&Selector::parse("main#content, #content").unwrap()).next().is_some() {
+        if doc
+            .select(&Selector::parse("main#content, #content").unwrap())
+            .next()
+            .is_some()
+        {
             score += 1;
         }
 

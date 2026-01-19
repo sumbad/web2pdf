@@ -1,9 +1,9 @@
 use anyhow::Result;
 use chromiumoxide::page::Page;
 
-use crate::adapters::{
-    mdbook::detector::MdBookDetector,
-    traits::{ResourceAdapter, ResourceAdapterWithDetector},
+use crate::{
+    _adapter_registry::traits::{ResourceAdapter, ResourceAdapterWithDetector},
+    _adapters::_mdbook::detector::MdBookDetector,
 };
 
 const FORCE_LIGHT_THEME_JS: &str = r#"

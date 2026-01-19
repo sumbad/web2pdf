@@ -4,20 +4,12 @@ use anyhow::Result;
 use chromiumoxide::Browser;
 use chromiumoxide::page::Page;
 
-// pub trait ResourceDetector: Send + Sync {
-//     fn detect_fast(&self, url: &str, html: &str) -> Option<bool>;
-//
-//     async fn detect_slow(&self, url: &str, browser: &Browser) -> anyhow::Result<bool>;
-// }
-
 #[async_trait::async_trait]
 pub trait ResourceDetector: Send + Sync + Debug {
-    /// Быстрый детект — только HTML
-    fn detect_fast(&self, html: &str) -> bool {
+    fn detect_fast(&self, _html: &str) -> bool {
         false
     }
 
-    /// Медленный детект — с браузером
     async fn detect_slow(&self, _browser: &Browser, _url: &str) -> Result<bool> {
         Ok(false)
     }
@@ -36,4 +28,3 @@ pub trait ResourceAdapter: Send + Sync + Debug + 'static {
 pub trait ResourceAdapterWithDetector: ResourceAdapter + Default {
     type Detector: ResourceDetector + Default + 'static;
 }
-
