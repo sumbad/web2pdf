@@ -9,6 +9,8 @@ pub struct TocNode {
     pub children: Vec<TocNode>,
 }
 
+// TODO: move to adapters
+
 ///
 /// Generate Table of contents by some URL
 /// It will find a sitemap if it is or parse a navbar, sidebar, etc.

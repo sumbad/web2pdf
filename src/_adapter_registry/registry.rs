@@ -1,8 +1,8 @@
-use anyhow::{Result, bail};
 use chromiumoxide::Browser;
 
-use crate::_adapter_registry::traits::{
-    ResourceAdapter, ResourceAdapterWithDetector, ResourceDetector,
+use crate::{
+    _adapter_registry::traits::{ResourceAdapter, ResourceAdapterWithDetector, ResourceDetector},
+    _adapters::default::DefaultAdapter,
 };
 
 #[derive(Debug)]
@@ -23,12 +23,14 @@ impl AdapterEntry {
 #[derive(Debug)]
 pub struct AdapterRegistry {
     entries: Vec<AdapterEntry>,
+    fallback_adapter: Box<dyn ResourceAdapter>,
 }
 
 impl AdapterRegistry {
     pub fn new() -> Self {
         Self {
             entries: Vec::new(),
+            fallback_adapter: Box::new(DefaultAdapter),
         }
     }
 
@@ -36,26 +38,22 @@ impl AdapterRegistry {
         self.entries.push(AdapterEntry::new::<A>());
     }
 
-    pub async fn detect(
-        &self,
-        html: &str,
-        browser: &Browser,
-        url: &str,
-    ) -> Result<&dyn ResourceAdapter> {
+    pub async fn detect(&self, html: &str, browser: &Browser, url: &str) -> &dyn ResourceAdapter {
         // FAST
         for entry in &self.entries {
             if entry.detector.detect_fast(html) {
-                return Ok(entry.adapter.as_ref());
+                return entry.adapter.as_ref();
             }
         }
 
         // SLOW
         for entry in &self.entries {
-            if entry.detector.detect_slow(browser, url).await? {
-                return Ok(entry.adapter.as_ref());
+            if let Ok(true) = entry.detector.detect_slow(browser, url).await {
+                return entry.adapter.as_ref();
             }
         }
 
-        bail!("No suitable adapter found")
+        // FALLBACK
+        self.fallback_adapter.as_ref()
     }
 }

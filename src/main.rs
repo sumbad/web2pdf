@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
-use chromiumoxide::browser::Browser;
 use chromiumoxide::cdp::browser_protocol::page::PrintToPdfParams;
+use chromiumoxide::{browser::Browser, page::MediaTypeParams};
 use futures::StreamExt;
 
 use std::env;
@@ -11,16 +11,20 @@ mod pdf_utils;
 use pdf_utils::merge_pdfs;
 
 mod browser_utils;
+use crate::_adapter_registry::traits::ResourceAdapter;
 use crate::browser_utils::{build_browser_config, find_browser};
 
 mod toc;
 
+mod _adapter_registry;
+use _adapter_registry::registry::AdapterRegistry;
+
+mod _adapters;
+use _adapters::_mdbook::adapter::MdBookAdapter;
+
 // JavaScript scripts
 const PAGE_WAIT_JS: &str = include_str!("../js/page-wait.js");
-const PAGE_CLEANUP_JS: &str = include_str!("../js/page-cleanup.js");
 const TITLE_EXTRACT_JS: &str = include_str!("../js/title-extract.js");
-const LANG_SET_JS: &str = include_str!("../js/lang-set.js");
-const ICONIFY_ICON: &str = include_str!("../js/iconify-icon.js");
 const PREPARE_HABR: &str = include_str!("../js/prepare-habr.js");
 
 const LOAD_PAGE_TIMEOUT_SEC: u64 = 30;
@@ -104,6 +108,14 @@ async fn main() -> Result<()> {
         }
     });
 
+    let html = reqwest::get(url).await?.text().await?;
+
+    tracing::debug!("Register adapters");
+    let mut registry = AdapterRegistry::new();
+    registry.register::<MdBookAdapter>();
+    let adapter = registry.detect(&html, &browser, url).await;
+    tracing::debug!("Detected adapter {:?}", adapter);
+
     // 📂 2. Temporary folder for individual PDFs
     let dir = tempdir()?;
     let mut pdf_files: Vec<(PathBuf, String)> = Vec::new();
@@ -117,7 +129,7 @@ async fn main() -> Result<()> {
             node.href
         );
 
-        process_page(i, &node.href, &browser, &dir, &mut pdf_files).await?;
+        process_page(i, &node.href, &browser, &dir, &mut pdf_files, adapter).await?;
     }
 
     browser.close().await?;
@@ -140,12 +152,17 @@ async fn process_page(
     browser: &Browser,
     dir: &TempDir,
     pdf_files: &mut Vec<(PathBuf, String)>,
+    adapter: &dyn ResourceAdapter,
 ) -> Result<()> {
     println!("  🌐 Creating new page...");
 
+    let page = browser.new_page("about:blank").await?;
+
+    adapter.before_page(&page).await?;
+
     let page = tokio::time::timeout(
         std::time::Duration::from_secs(LOAD_PAGE_TIMEOUT_SEC),
-        browser.new_page((*link).clone()),
+        page.goto((*link).clone()),
     )
     .await;
 
@@ -164,6 +181,8 @@ async fn process_page(
             return Ok(());
         }
     };
+ 
+    page.emulate_media_type(MediaTypeParams::Print).await?;
 
     // Wait for document to be ready
     let wait_js = PAGE_WAIT_JS;
@@ -190,19 +209,7 @@ async fn process_page(
 
     println!("  ✅ Page created successfully");
 
-    println!("  🧹 Clean page for screen readers...");
-    let js_remove_result = page.evaluate_function(PAGE_CLEANUP_JS).await?;
-    tracing::debug!("Executing page cleanup result {js_remove_result:?}");
-    match js_remove_result.into_value::<bool>() {
-        Ok(d) => {
-            tracing::debug!("Page cleanup completed successfully, {d}");
-            println!("  ✅ Page cleaned");
-        }
-        Err(e) => {
-            tracing::warn!("Failed to parse cleanup result: {:?}, but continuing", e);
-            println!("  🚨 Page cleaned (with warnings)");
-        }
-    }
+    adapter.after_page(page).await?;
 
     // TODO: collect title inside TocNode
     println!("  📝 Extracting page title...");
@@ -229,10 +236,7 @@ async fn process_page(
     };
     println!("  ✅ Title extracted: {}", title);
 
-    page.evaluate(LANG_SET_JS).await?;
-
-    page.evaluate(ICONIFY_ICON).await?;
-
+    // TODO: create HabrAdapter
     if link.starts_with("https://habr.com") {
         println!("  🏗️ : PREPARE_HABR");
         page.evaluate(PREPARE_HABR).await?;
