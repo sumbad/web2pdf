@@ -13,6 +13,7 @@ use pdf_utils::merge_pdfs;
 mod browser_utils;
 use crate::_adapter_registry::traits::ResourceAdapter;
 use crate::browser_utils::{build_browser_config, find_browser};
+use crate::toc::TocNode;
 
 mod toc;
 
@@ -129,7 +130,7 @@ async fn main() -> Result<()> {
             node.href
         );
 
-        process_page(i, &node.href, &browser, &dir, &mut pdf_files, adapter).await?;
+        process_page(i, node, &browser, &dir, &mut pdf_files, adapter).await?;
     }
 
     browser.close().await?;
@@ -148,7 +149,7 @@ async fn main() -> Result<()> {
 ///
 async fn process_page(
     index: usize,
-    link: &String,
+    node: &TocNode,
     browser: &Browser,
     dir: &TempDir,
     pdf_files: &mut Vec<(PathBuf, String)>,
@@ -160,9 +161,11 @@ async fn process_page(
 
     adapter.before_page(&page).await?;
 
+    let link = &node.href;
+
     let page = tokio::time::timeout(
         std::time::Duration::from_secs(LOAD_PAGE_TIMEOUT_SEC),
-        page.goto((*link).clone()),
+        page.goto(link),
     )
     .await;
 
@@ -181,7 +184,7 @@ async fn process_page(
             return Ok(());
         }
     };
- 
+
     page.emulate_media_type(MediaTypeParams::Print).await?;
 
     // Wait for document to be ready
@@ -212,22 +215,29 @@ async fn process_page(
     adapter.after_page(page).await?;
 
     // TODO: collect title inside TocNode
-    println!("  📝 Extracting page title...");
-    // Extract page title
-    let title_js = TITLE_EXTRACT_JS;
-    tracing::debug!("Executing title extraction script");
-    let title = match page
-        .evaluate_function(title_js)
-        .await?
-        .into_value::<String>()
-    {
-        Ok(title) => title,
-        Err(_) => {
-            tracing::warn!("Failed to extract title, using URL fallback");
-            link.to_string()
-        }
+    let title = if let Some(ref t) = node.title {
+        t.clone()
+    } else {
+        println!("  📝 Extracting page title...");
+        // Extract page title
+        let title_js = TITLE_EXTRACT_JS;
+        tracing::debug!("Executing title extraction script");
+        let extracted_title = match page
+            .evaluate_function(title_js)
+            .await?
+            .into_value::<String>()
+        {
+            Ok(title) => title,
+            Err(_) => {
+                tracing::warn!("Failed to extract title, using URL fallback");
+                link.to_string()
+            }
+        };
+        tracing::debug!("Extracted title: {}", extracted_title);
+
+        extracted_title
     };
-    tracing::debug!("Extracted title: {}", title);
+
     let chapter_num = toc::extract_chapter_number(link);
     let title = if chapter_num > 0 {
         format!("Chapter {} - {}", chapter_num, title)

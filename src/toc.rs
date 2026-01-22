@@ -6,7 +6,7 @@ use url::Url;
 pub struct TocNode {
     pub title: Option<String>,
     pub href: String,
-    pub children: Vec<TocNode>,
+    pub level: u8,
 }
 
 // TODO: move to adapters
@@ -29,7 +29,7 @@ pub async fn generate_toc(url: &String) -> Result<Vec<TocNode>> {
     Ok(vec![TocNode {
         title: None,
         href: url.to_string(),
-        children: vec![],
+        level: 0,
     }])
 }
 
@@ -59,53 +59,53 @@ fn parse_mdbook_toc(html: &str, base_url: &Url) -> Result<Vec<TocNode>> {
         .next()
         .context("mdBook TOC not found: nav#sidebar ol.chapter")?;
 
-    parse_ol(ol, base_url)
-}
+    let mut nodes: Vec<TocNode> = Vec::new();
 
-fn parse_ol(ol: ElementRef, base_url: &Url) -> Result<Vec<TocNode>> {
-    let li_selector = Selector::parse(":scope > li").expect("valid selector");
-
-    let mut nodes = Vec::new();
-
-    for li in ol.select(&li_selector) {
-        if let Some(node) = parse_li(li, base_url)? {
-            nodes.push(node);
-        }
-    }
+    parse_ol(&mut nodes, ol, base_url, 0)?;
 
     Ok(nodes)
 }
 
-fn parse_li(li: ElementRef, base_url: &Url) -> Result<Option<TocNode>> {
+fn parse_ol(nodes: &mut Vec<TocNode>, ol: ElementRef, base_url: &Url, level: u8) -> Result<()> {
+    let li_selector = Selector::parse(":scope > li").expect("valid selector");
+
+    for li in ol.select(&li_selector) {
+        parse_li(nodes, li, base_url, level)?;
+    }
+
+    Ok(())
+}
+
+fn parse_li(nodes: &mut Vec<TocNode>, li: ElementRef, base_url: &Url, level: u8) -> Result<()> {
     let a_selector = Selector::parse(":scope > a").expect("valid selector");
     let ol_selector = Selector::parse(":scope > ol").expect("valid selector");
 
-    let a = match li.select(&a_selector).next() {
-        Some(a) => a,
-        None => return Ok(None), // разделители, пустые li
-    };
+    let a = li.select(&a_selector).next();
+    let ol = li.select(&ol_selector).next();
 
-    let title = a.text().collect::<String>().trim().to_string();
+    if let Some(ol_el) = ol {
+        return parse_ol(nodes, ol_el, base_url, level + 1);
+    }
 
-    let href_raw = a.value().attr("href").context("TOC link without href")?;
+    if let Some(a_el) = a {
+        let title = a_el.text().collect::<String>().trim().to_string();
 
-    // mdBook использует относительные ссылки
-    let href = base_url
-        .join(href_raw)
-        .context("invalid TOC href")?
-        .to_string();
+        let href_raw = a_el.value().attr("href").context("TOC link without href")?;
 
-    let children = if let Some(child_ol) = li.select(&ol_selector).next() {
-        parse_ol(child_ol, base_url)?
-    } else {
-        Vec::new()
-    };
+        // mdbook uses relative links
+        let href = base_url
+            .join(href_raw)
+            .context("invalid TOC href")?
+            .to_string();
 
-    Ok(Some(TocNode {
-        title: Some(title),
-        href,
-        children,
-    }))
+        nodes.push(TocNode {
+            title: Some(title),
+            href,
+            level,
+        })
+    }
+
+    Ok(())
 }
 
 async fn toc_from_sitemap(url: &String) -> Result<Option<Vec<TocNode>>> {
@@ -136,7 +136,7 @@ async fn toc_from_sitemap(url: &String) -> Result<Option<Vec<TocNode>>> {
         nodes.push(TocNode {
             href,
             title: None,
-            children: vec![],
+            level: 0,
         });
     }
 
