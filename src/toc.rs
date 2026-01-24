@@ -1,9 +1,12 @@
+use std::path::PathBuf;
+
 use anyhow::{Context, Result};
 use scraper::{ElementRef, Html, Selector};
 use url::Url;
 
 #[derive(Debug, Clone)]
 pub struct TocNode {
+    pub file_path: Option<PathBuf>,
     pub title: Option<String>,
     pub href: String,
     pub level: u8,
@@ -27,6 +30,7 @@ pub async fn generate_toc(url: &String) -> Result<Vec<TocNode>> {
     }
 
     Ok(vec![TocNode {
+        file_path: None,
         title: None,
         href: url.to_string(),
         level: 0,
@@ -99,6 +103,7 @@ fn parse_li(nodes: &mut Vec<TocNode>, li: ElementRef, base_url: &Url, level: u8)
             .to_string();
 
         nodes.push(TocNode {
+            file_path: None,
             title: Some(title),
             href,
             level,
@@ -134,8 +139,9 @@ async fn toc_from_sitemap(url: &String) -> Result<Option<Vec<TocNode>>> {
 
     for href in sitemap_links {
         nodes.push(TocNode {
-            href,
+            file_path: None,
             title: None,
+            href,
             level: 0,
         });
     }

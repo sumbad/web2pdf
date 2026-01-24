@@ -119,18 +119,18 @@ async fn main() -> Result<()> {
 
     // 📂 2. Temporary folder for individual PDFs
     let dir = tempdir()?;
-    let mut pdf_files: Vec<(PathBuf, String)> = Vec::new();
 
+    let toc_len = toc.len();
     // 🌀 3. Process each page
-    for (i, node) in toc.iter().enumerate() {
+    for (i, node) in toc.iter_mut().enumerate() {
         println!(
             "→ [{}/{}] Processing {}",
             i + 1,
-            toc.len(), // TODO: count children as well
+            toc_len,
             node.href
         );
 
-        process_page(i, node, &browser, &dir, &mut pdf_files, adapter).await?;
+        process_page(i, node, &browser, &dir, adapter).await?;
     }
 
     browser.close().await?;
@@ -138,8 +138,8 @@ async fn main() -> Result<()> {
 
     // 🧩 4. Merge PDFs
     let output_path = PathBuf::from(output);
-    println!("📚 Merging {} PDFs into {}", pdf_files.len(), output);
-    merge_pdfs(pdf_files, output_path)?;
+    println!("📚 Merging {} PDFs into {}", toc.len(), output);
+    merge_pdfs(toc, output_path)?;
 
     Ok(())
 }
@@ -149,10 +149,9 @@ async fn main() -> Result<()> {
 ///
 async fn process_page(
     index: usize,
-    node: &TocNode,
+    node: &mut TocNode,
     browser: &Browser,
     dir: &TempDir,
-    pdf_files: &mut Vec<(PathBuf, String)>,
     adapter: &dyn ResourceAdapter,
 ) -> Result<()> {
     println!("  🌐 Creating new page...");
@@ -308,7 +307,7 @@ async fn process_page(
         }
     }
 
-    pdf_files.push((pdf_path, title));
+    node.file_path = Some(pdf_path);
     println!("  ✅ Page processing complete\n");
 
     Ok(())

@@ -1,11 +1,16 @@
 use lopdf::{Bookmark, Dictionary, Document, Object, ObjectId};
-use std::{collections::BTreeMap, path::Path};
+use std::{
+    collections::{BTreeMap, HashMap},
+    path::Path,
+};
 
-pub fn merge_pdfs<P>(files_with_titles: Vec<(P, String)>, output: P) -> lopdf::Result<()>
+use crate::toc::TocNode;
+
+pub fn merge_pdfs<P>(toc: Vec<TocNode>, output: P) -> lopdf::Result<()>
 where
     P: AsRef<Path>,
 {
-    let files_iter = files_with_titles.into_iter();
+    let toc_iter = toc.into_iter();
 
     // Define a starting `max_id` (will be used as start index for object_ids).
     let mut max_id = 1;
@@ -15,14 +20,25 @@ where
     let mut documents_objects = BTreeMap::new();
     let mut document = Document::with_version("1.5");
 
-    for (path, title) in files_iter {
-        let path_ref = path.as_ref();
+    let mut previous_lever_bookmark: HashMap<u8, Option<u32>> = HashMap::new();
+    for node in toc_iter {
+        let file_path = if let Some(path) = node.file_path.as_ref() {
+            path
+        } else {
+            continue;
+        };
+
+        let title = if let Some(t) = node.title {
+            t
+        } else {
+            file_path.to_string_lossy().to_string()
+        };
 
         // ⚠️ Skip corrupted PDFs
-        let mut doc = match Document::load(path_ref) {
+        let mut doc = match Document::load(file_path) {
             Ok(d) => d,
             Err(e) => {
-                eprintln!("⚠️ Skipping corrupted PDF {:?}: {:?}", path_ref, e);
+                eprintln!("⚠️ Skipping corrupted PDF {:?}: {:?}", file_path, e);
                 continue;
             }
         };
@@ -41,7 +57,20 @@ where
                         println!("  🔖 Creating bookmark: {}", title);
                         let bookmark =
                             Bookmark::new(title.clone(), [0.0, 0.0, 1.0], pagenum - 1, object_id);
-                        document.add_bookmark(bookmark, None);
+
+                        // Reset level's tree
+                        if node.level == 0 {
+                            previous_lever_bookmark.clear();
+                        }
+
+                        let parent = previous_lever_bookmark
+                            .get(&node.level.saturating_sub(1))
+                            .copied()
+                            .flatten();
+
+                        previous_lever_bookmark
+                            .insert(node.level, Some(document.add_bookmark(bookmark, parent)));
+
                         is_first_page = false;
                     }
                     pagenum += 1;
@@ -202,7 +231,8 @@ where
 
                 // Ensure the outline object has proper structure
                 if let Ok(outline_obj) = document.get_object(outline_id)
-                    && let Object::Dictionary(mut outline_dict) = outline_obj.clone() {
+                    && let Object::Dictionary(mut outline_dict) = outline_obj.clone()
+                {
                     // Add Count property (number of bookmarks)
                     outline_dict.set("Count", document.bookmarks.len() as i64);
 
