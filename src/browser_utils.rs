@@ -94,12 +94,12 @@ pub fn extract_chapter_number(url: &str) -> u32 {
 }
 
 /// Try to find browser binary.
-/// 1. Checks PATH (chromium, google-chrome).
-/// 2. Checks standard paths for macOS.
+/// 1. Checks PATH (chromium, google-chrome, chrome).
+/// 2. Checks standard paths for macOS and Windows and Linux.
 ///
 /// Returns path to binary or error.
 pub fn find_browser() -> Result<String> {
-    for candidate in ["chromium", "google-chrome"] {
+    for candidate in ["chromium", "google-chrome", "chrome"] {
         if let Ok(path) = which::which(candidate) {
             return Ok(path.to_string_lossy().to_string());
         }
@@ -110,11 +110,64 @@ pub fn find_browser() -> Result<String> {
         "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     ];
 
-    for candidate in mac_paths {
-        if Path::new(candidate).exists() {
-            return Ok(candidate.to_string());
+    let windows_paths = [
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files\Chromium\Application\chrome.exe",
+        r"C:\Program Files (x86)\Chromium\Application\chrome.exe",
+    ];
+
+    let linux_paths = [
+        "/usr/bin/chromium",
+        "/usr/bin/google-chrome",
+        "/usr/bin/google-chrome-stable",
+        "/usr/bin/chromium-browser",
+        "/opt/google/chrome/google-chrome",
+        "/snap/bin/chromium",
+        "/snap/bin/google-chrome",
+    ];
+
+    if cfg!(target_os = "macos") {
+        for candidate in mac_paths {
+            if Path::new(candidate).exists() {
+                return Ok(candidate.to_string());
+            }
         }
     }
 
-    anyhow::bail!("Chromium or Chrome not found! Please, install Chromium")
+    if cfg!(target_os = "linux") {
+        for candidate in linux_paths {
+            if Path::new(candidate).exists() {
+                return Ok(candidate.to_string());
+            }
+        }
+    }
+
+    if cfg!(target_os = "windows") {
+        for candidate in windows_paths {
+            if Path::new(candidate).exists() {
+                return Ok(candidate.to_string());
+            }
+        }
+
+        if let Ok(app_data) = std::env::var("LOCALAPPDATA") {
+            let chrome_path = format!(
+                r"{}\Google\Chrome\Application\chrome.exe",
+                app_data
+            );
+            if Path::new(&chrome_path).exists() {
+                return Ok(chrome_path);
+            }
+
+            let chromium_path = format!(
+                r"{}\Chromium\Application\chrome.exe",
+                app_data
+            );
+            if Path::new(&chromium_path).exists() {
+                return Ok(chromium_path);
+            }
+        }
+    }
+
+    anyhow::bail!("Chromium or Chrome not found! Please, install Chromium or Google Chrome")
 }
