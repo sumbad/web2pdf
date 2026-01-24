@@ -99,9 +99,18 @@ pub fn extract_chapter_number(url: &str) -> u32 {
 ///
 /// Returns path to binary or error.
 pub fn find_browser() -> Result<String> {
+    tracing::debug!("Searching for browser binary...");
+
     for candidate in ["chromium", "google-chrome", "chrome"] {
-        if let Ok(path) = which::which(candidate) {
-            return Ok(path.to_string_lossy().to_string());
+        tracing::debug!("Checking PATH for: {}", candidate);
+        match which::which(candidate) {
+            Ok(path) => {
+                tracing::debug!("Found browser in PATH: {}", path.display());
+                return Ok(path.to_string_lossy().to_string());
+            }
+            Err(e) => {
+                tracing::debug!("Not found in PATH: {} - {}", candidate, e);
+            }
         }
     }
 
@@ -128,46 +137,61 @@ pub fn find_browser() -> Result<String> {
     ];
 
     if cfg!(target_os = "macos") {
+        tracing::debug!("Checking macOS standard paths...");
         for candidate in mac_paths {
+            tracing::debug!("Checking: {}", candidate);
             if Path::new(candidate).exists() {
+                tracing::debug!("Found browser: {}", candidate);
                 return Ok(candidate.to_string());
             }
         }
     }
 
     if cfg!(target_os = "linux") {
+        tracing::debug!("Checking Linux standard paths...");
         for candidate in linux_paths {
+            tracing::debug!("Checking: {}", candidate);
             if Path::new(candidate).exists() {
+                tracing::debug!("Found browser: {}", candidate);
                 return Ok(candidate.to_string());
             }
         }
     }
 
     if cfg!(target_os = "windows") {
+        tracing::debug!("Checking Windows standard paths...");
         for candidate in windows_paths {
+            tracing::debug!("Checking: {}", candidate);
             if Path::new(candidate).exists() {
+                tracing::debug!("Found browser: {}", candidate);
                 return Ok(candidate.to_string());
             }
         }
 
         if let Ok(app_data) = std::env::var("LOCALAPPDATA") {
-            let chrome_path = format!(
-                r"{}\Google\Chrome\Application\chrome.exe",
-                app_data
-            );
+            tracing::debug!("LOCALAPPDATA found: {}", app_data);
+            let chrome_path = format!(r"{}\Google\Chrome\Application\chrome.exe", app_data);
+            tracing::debug!("Checking: {}", chrome_path);
             if Path::new(&chrome_path).exists() {
+                tracing::debug!("Found browser: {}", chrome_path);
                 return Ok(chrome_path);
             }
 
-            let chromium_path = format!(
-                r"{}\Chromium\Application\chrome.exe",
-                app_data
-            );
+            let chromium_path = format!(r"{}\Chromium\Application\chrome.exe", app_data);
+            tracing::debug!("Checking: {}", chromium_path);
             if Path::new(&chromium_path).exists() {
+                tracing::debug!("Found browser: {}", chromium_path);
                 return Ok(chromium_path);
             }
+        } else {
+            tracing::debug!("LOCALAPPDATA environment variable not found");
         }
     }
 
-    anyhow::bail!("Chromium or Chrome not found! Please, install Chromium or Google Chrome")
+    anyhow::bail!(
+        "Chromium or Chrome not found! \
+        Platform: {} \
+        Please install Google Chrome or Chromium and ensure it's accessible from PATH or standard installation paths",
+        std::env::consts::OS
+    )
 }
