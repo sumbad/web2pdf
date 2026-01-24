@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Added
+- Adapter registry system for pluggable resource-specific processing
+- ResourceAdapter trait with `before_page()` and `after_page()` hooks for page customization
+- ResourceDetector trait for fast HTML-based and slow browser-based detection
+- MdBookAdapter with automatic light theme forcing for mdBook documentation sites
+- DefaultAdapter with page cleanup for screen readers
+- Table of Contents (TOC) generation system supporting multiple sources:
+  - XML sitemap parsing
+  - mdBook navbar navigation parsing
+- Hierarchical bookmark support with parent-child relationships in PDF bookmarks
+- TocNode structure to track file path, title, URL, and hierarchy level
+- Chapter number extraction from URLs for automatic title formatting
+
+### Changed
+- Improved bookmark hierarchy tracking with level-based parent relationships
+
+
 ## [0.1.3] - 2026-01-24
 
 ### Fixed

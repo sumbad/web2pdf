@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
-use chromiumoxide::browser::Browser;
 use chromiumoxide::cdp::browser_protocol::page::PrintToPdfParams;
+use chromiumoxide::{browser::Browser, page::MediaTypeParams};
 use futures::StreamExt;
 
 use std::env;
@@ -10,18 +10,22 @@ use tempfile::{TempDir, tempdir};
 mod pdf_utils;
 use pdf_utils::merge_pdfs;
 
-use crate::browser_utils::{
-    build_browser_config, extract_chapter_number, find_browser, get_sitemap_url,
-};
-
 mod browser_utils;
+use crate::_adapter_registry::traits::ResourceAdapter;
+use crate::browser_utils::{build_browser_config, find_browser};
+use crate::toc::TocNode;
+
+mod toc;
+
+mod _adapter_registry;
+use _adapter_registry::registry::AdapterRegistry;
+
+mod _adapters;
+use _adapters::_mdbook::adapter::MdBookAdapter;
 
 // JavaScript scripts
 const PAGE_WAIT_JS: &str = include_str!("../js/page-wait.js");
-const PAGE_CLEANUP_JS: &str = include_str!("../js/page-cleanup.js");
 const TITLE_EXTRACT_JS: &str = include_str!("../js/title-extract.js");
-const LANG_SET_JS: &str = include_str!("../js/lang-set.js");
-const ICONIFY_ICON: &str = include_str!("../js/iconify-icon.js");
 const PREPARE_HABR: &str = include_str!("../js/prepare-habr.js");
 
 const LOAD_PAGE_TIMEOUT_SEC: u64 = 30;
@@ -46,19 +50,6 @@ async fn main() -> Result<()> {
     let browser_path = find_browser().context("Browser not found!")?;
     println!("Use browser: {}", browser_path);
 
-    tracing::debug!("Fetching sitemap for URL: {}", url);
-    let sitemap_links = get_sitemap_url(url).await?;
-    tracing::info!("Found {} sitemap links", sitemap_links.len());
-    let sitemap_blacklist = ["subscribe", "errata", "colophon"];
-    let mut sitemap_links: Vec<String> = sitemap_links
-        .into_iter()
-        .filter(|url| !sitemap_blacklist.iter().any(|bad| url.contains(bad)))
-        .collect();
-    sitemap_links.sort_by(|a, b| {
-        let num_a = extract_chapter_number(a);
-        let num_b = extract_chapter_number(b);
-        num_a.cmp(&num_b)
-    });
     // Initialize logging based on debug flag
     if debug_mode {
         unsafe {
@@ -78,23 +69,17 @@ async fn main() -> Result<()> {
             .init();
     }
 
-    let sitemap_links: Vec<&String> = if sitemap_links.is_empty() {
-        println!("🚨 No sitemap links found, using direct URL");
-        vec![&url]
+    let mut toc = toc::generate_toc(url).await?;
+
+    // Limit in debug mode
+    toc = if debug_mode {
+        println!("🐛 Debug mode: limiting to first 3 pages");
+        toc[0..3.min(toc.len())].iter().cloned().collect()
     } else {
-        // Limit to first 3 links in debug mode
-        if debug_mode {
-            println!("🐛 Debug mode: limiting to first 3 pages");
-            sitemap_links[0..3.min(sitemap_links.len())]
-                .iter()
-                .collect()
-        } else {
-            sitemap_links.iter().collect()
-        }
+        toc
     };
 
-    tracing::debug!("Logging initialized successfully");
-    println!("Convert URLs {:#?}", sitemap_links);
+    println!("TOC {:#?}", toc);
 
     // 🧭 1. Start browser
     tracing::debug!("Configuring browser with path: {}", browser_path);
@@ -124,13 +109,28 @@ async fn main() -> Result<()> {
         }
     });
 
+    let html = reqwest::get(url).await?.text().await?;
+
+    tracing::debug!("Register adapters");
+    let mut registry = AdapterRegistry::new();
+    registry.register::<MdBookAdapter>();
+    let adapter = registry.detect(&html, &browser, url).await;
+    tracing::debug!("Detected adapter {:?}", adapter);
+
     // 📂 2. Temporary folder for individual PDFs
     let dir = tempdir()?;
-    let mut pdf_files: Vec<(PathBuf, String)> = Vec::new();
 
+    let toc_len = toc.len();
     // 🌀 3. Process each page
-    for (i, link) in sitemap_links.iter().enumerate() {
-        process_page(i, &sitemap_links, link, &browser, &dir, &mut pdf_files).await?;
+    for (i, node) in toc.iter_mut().enumerate() {
+        println!(
+            "→ [{}/{}] Processing {}",
+            i + 1,
+            toc_len,
+            node.href
+        );
+
+        process_page(i, node, &browser, &dir, adapter).await?;
     }
 
     browser.close().await?;
@@ -138,8 +138,8 @@ async fn main() -> Result<()> {
 
     // 🧩 4. Merge PDFs
     let output_path = PathBuf::from(output);
-    println!("📚 Merging {} PDFs into {}", pdf_files.len(), output);
-    merge_pdfs(pdf_files, output_path)?;
+    println!("📚 Merging {} PDFs into {}", toc.len(), output);
+    merge_pdfs(toc, output_path)?;
 
     Ok(())
 }
@@ -149,24 +149,22 @@ async fn main() -> Result<()> {
 ///
 async fn process_page(
     index: usize,
-    sitemap_links: &[&String],
-    link: &String,
+    node: &mut TocNode,
     browser: &Browser,
     dir: &TempDir,
-    pdf_files: &mut Vec<(PathBuf, String)>,
+    adapter: &dyn ResourceAdapter,
 ) -> Result<()> {
-    println!(
-        "→ [{}/{}] Processing {}",
-        index + 1,
-        sitemap_links.len(),
-        link
-    );
-
     println!("  🌐 Creating new page...");
+
+    let page = browser.new_page("about:blank").await?;
+
+    adapter.before_page(&page).await?;
+
+    let link = &node.href;
 
     let page = tokio::time::timeout(
         std::time::Duration::from_secs(LOAD_PAGE_TIMEOUT_SEC),
-        browser.new_page((*link).clone()),
+        page.goto(link),
     )
     .await;
 
@@ -185,6 +183,8 @@ async fn process_page(
             return Ok(());
         }
     };
+
+    page.emulate_media_type(MediaTypeParams::Print).await?;
 
     // Wait for document to be ready
     let wait_js = PAGE_WAIT_JS;
@@ -211,37 +211,33 @@ async fn process_page(
 
     println!("  ✅ Page created successfully");
 
-    println!("  🧹 Clean page for screen readers...");
-    let js_remove_result = page.evaluate_function(PAGE_CLEANUP_JS).await?;
-    tracing::debug!("Executing page cleanup result {js_remove_result:?}");
-    match js_remove_result.into_value::<bool>() {
-        Ok(d) => {
-            tracing::debug!("Page cleanup completed successfully, {d}");
-            println!("  ✅ Page cleaned");
-        }
-        Err(e) => {
-            tracing::warn!("Failed to parse cleanup result: {:?}, but continuing", e);
-            println!("  🚨 Page cleaned (with warnings)");
-        }
-    }
+    adapter.after_page(page).await?;
 
-    println!("  📝 Extracting page title...");
-    // Extract page title
-    let title_js = TITLE_EXTRACT_JS;
-    tracing::debug!("Executing title extraction script");
-    let title = match page
-        .evaluate_function(title_js)
-        .await?
-        .into_value::<String>()
-    {
-        Ok(title) => title,
-        Err(_) => {
-            tracing::warn!("Failed to extract title, using URL fallback");
-            link.to_string()
-        }
+    // TODO: collect title inside TocNode
+    let title = if let Some(ref t) = node.title {
+        t.clone()
+    } else {
+        println!("  📝 Extracting page title...");
+        // Extract page title
+        let title_js = TITLE_EXTRACT_JS;
+        tracing::debug!("Executing title extraction script");
+        let extracted_title = match page
+            .evaluate_function(title_js)
+            .await?
+            .into_value::<String>()
+        {
+            Ok(title) => title,
+            Err(_) => {
+                tracing::warn!("Failed to extract title, using URL fallback");
+                link.to_string()
+            }
+        };
+        tracing::debug!("Extracted title: {}", extracted_title);
+
+        extracted_title
     };
-    tracing::debug!("Extracted title: {}", title);
-    let chapter_num = extract_chapter_number(link);
+
+    let chapter_num = toc::extract_chapter_number(link);
     let title = if chapter_num > 0 {
         format!("Chapter {} - {}", chapter_num, title)
     } else {
@@ -249,10 +245,7 @@ async fn process_page(
     };
     println!("  ✅ Title extracted: {}", title);
 
-    page.evaluate(LANG_SET_JS).await?;
-
-    page.evaluate(ICONIFY_ICON).await?;
-
+    // TODO: create HabrAdapter
     if link.starts_with("https://habr.com") {
         println!("  🏗️ : PREPARE_HABR");
         page.evaluate(PREPARE_HABR).await?;
@@ -314,7 +307,7 @@ async fn process_page(
         }
     }
 
-    pdf_files.push((pdf_path, title));
+    node.file_path = Some(pdf_path);
     println!("  ✅ Page processing complete\n");
 
     Ok(())
