@@ -63,25 +63,3 @@ impl ResourceDetector for MdBookDetector {
         score >= 5
     }
 }
-
-//
-// try {
-//   const hasSidebar = !!document.querySelector('nav#sidebar');
-//   const hasContent = !!document.querySelector('div#content');
-//
-//   const meta = document.querySelector('meta[name="generator"]');
-//   const isMdBookMeta = meta && meta.content.toLowerCase().includes('mdbook');
-//
-//   const bodyClass = document.body?.classList.contains('mdbook');
-//
-//   let score = 0;
-//   if (hasSidebar) score++;
-//   if (hasContent) score++;
-//   if (isMdBookMeta) score++;
-//   if (bodyClass) score++;
-//
-//   // mdBook almost always hits >= 2
-//   return score >= 2;
-// } catch (e) {
-//   return false;
-// }
