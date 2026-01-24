@@ -7,18 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.1.3] - 2026-01-24
-
-### Fixed
-- Browser detection for Linux with standard paths (/usr/bin, /opt, /snap)
-- Browser detection for Windows with Program Files and LOCALAPPDATA paths
-
-### Added
-- Comprehensive debug logging for browser discovery process including:
-  - PATH checking for each candidate
-  - Standard path checking per platform
-  - LOCALAPPDATA environment variable verification
-- Platform information in browser not found error message
+## [Unreleased]
 
 ### Added
 - Adapter registry system for pluggable resource-specific processing
@@ -35,6 +24,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Improved bookmark hierarchy tracking with level-based parent relationships
+
+
+## [0.1.3] - 2026-01-24
+
+### Fixed
+- Browser detection for Linux with standard paths (/usr/bin, /opt, /snap)
+- Browser detection for Windows with Program Files and LOCALAPPDATA paths
+
+### Added
+- Comprehensive debug logging for browser discovery process including:
+  - PATH checking for each candidate
+  - Standard path checking per platform
+  - LOCALAPPDATA environment variable verification
+- Platform information in browser not found error message
 
 ## [0.1.2] - 2026-01-12
 
