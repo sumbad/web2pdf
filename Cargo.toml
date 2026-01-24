@@ -1,6 +1,6 @@
 [package]
 name = "web2pdf"
-version = "0.1.3"
+version = "0.2.0"
 repository = "https://github.com/sumbad/web2pdf"
 edition = "2024"
 
