@@ -1,9 +1,11 @@
-use lopdf::{Bookmark, Dictionary, Document, Object, ObjectId};
+use lopdf::{Bookmark, Document, Object, ObjectId};
 use std::{
     collections::{BTreeMap, HashMap},
     path::Path,
 };
 
+use super::fix_tagged_pdf::fix_tagged_pdf;
+use super::flatten_nonstruct::sanitize_pdf_ua;
 use crate::toc::TocNode;
 
 pub fn merge_pdfs<P>(toc: Vec<TocNode>, output: P) -> lopdf::Result<()>
@@ -12,29 +14,32 @@ where
 {
     let toc_iter = toc.into_iter();
 
-    // Define a starting `max_id` (will be used as start index for object_ids).
+    // 📌 Шаг 1.1: Используем версию 1.7 для поддержки современного Tagged PDF
+    let mut document = Document::with_version("1.7");
+
     let mut max_id = 1;
     let mut pagenum = 1;
-    // Collect all Documents Objects grouped by a map
+
     let mut documents_pages = BTreeMap::new();
     let mut documents_objects = BTreeMap::new();
-    let mut document = Document::with_version("1.5");
+
+    // 📌 Шаг 1.2: Коллекторы для структурных данных (Этап 1)
+    // Мы сохраним StructTreeRoot каждого документа как отдельные объекты для последующего анализа
+    let mut source_struct_roots = Vec::new();
 
     let mut previous_lever_bookmark: HashMap<u8, Option<u32>> = HashMap::new();
+
     for node in toc_iter {
         let file_path = if let Some(path) = node.file_path.as_ref() {
             path
         } else {
             continue;
         };
+        let title = node
+            .title
+            .clone()
+            .unwrap_or_else(|| file_path.to_string_lossy().to_string());
 
-        let title = if let Some(t) = node.title {
-            t
-        } else {
-            file_path.to_string_lossy().to_string()
-        };
-
-        // ⚠️ Skip corrupted PDFs
         let mut doc = match Document::load(file_path) {
             Ok(d) => d,
             Err(e) => {
@@ -43,44 +48,55 @@ where
             }
         };
 
-        // 📌 Shift IDs to prevent intersections between documents
+        sanitize_pdf_ua(&mut doc);
+
+        // 📌 Ренумерация (уже есть у вас, это правильно)
         doc.renumber_objects_with(max_id);
         max_id = doc.max_id + 1;
 
-        // 📑 Add pages with bookmarks
-        let mut is_first_page = true;
-        documents_pages.extend(
-            IntoIterator::into_iter(doc.get_pages())
-                .map(|(_page_num, object_id)| {
-                    // Create bookmark for the first page of this document
-                    if is_first_page {
-                        println!("  🔖 Creating bookmark: {}", title);
-                        let bookmark =
-                            Bookmark::new(title.clone(), [0.0, 0.0, 1.0], pagenum - 1, object_id);
-
-                        // Reset level's tree
-                        if node.level == 0 {
-                            previous_lever_bookmark.clear();
-                        }
-
-                        let parent = previous_lever_bookmark
-                            .get(&node.level.saturating_sub(1))
-                            .copied()
-                            .flatten();
-
-                        previous_lever_bookmark
-                            .insert(node.level, Some(document.add_bookmark(bookmark, parent)));
-
-                        is_first_page = false;
+        // 📌 Шаг 1.3: Экстракция данных StructTreeRoot
+        // Находим корень структуры в текущем документе
+        if let Ok(catalog) = doc.catalog() {
+            if let Ok(struct_root_res) = catalog.get(b"StructTreeRoot") {
+                // Сохраняем ссылку на StructTreeRoot этого документа для этапов 2-4
+                if let Ok(id) = struct_root_res.as_reference() {
+                    if let Ok(dict) = doc.get_object(id).and_then(|o| o.as_dict()) {
+                        // Клонируем словарь, так как doc будет поглощен или уничтожен
+                        source_struct_roots.push(dict.clone());
                     }
-                    pagenum += 1;
+                }
+            }
+        }
 
-                    (object_id, doc.get_object(object_id).unwrap().to_owned())
-                })
-                .collect::<BTreeMap<ObjectId, Object>>(),
-        );
+        // 📑 Сбор страниц и объектов (ваш текущий код)
+        let mut is_first_page = true;
+        for (_page_num, object_id) in doc.get_pages() {
+            if is_first_page {
+                let bookmark =
+                    Bookmark::new(title.clone(), [0.0, 0.0, 1.0], pagenum - 1, object_id);
+                if node.level == 0 {
+                    previous_lever_bookmark.clear();
+                }
+                let parent = previous_lever_bookmark
+                    .get(&node.level.saturating_sub(1))
+                    .copied()
+                    .flatten();
+                previous_lever_bookmark
+                    .insert(node.level, Some(document.add_bookmark(bookmark, parent)));
+                is_first_page = false;
+            }
+            pagenum += 1;
+
+            // Важно: сохраняем страницу
+            if let Ok(obj) = doc.get_object(object_id) {
+                documents_pages.insert(object_id, obj.to_owned());
+            }
+        }
+
+        // Поглощаем все объекты текущего документа
         documents_objects.extend(doc.objects);
     }
+    /////////////////
 
     // "Catalog" and "Pages" are mandatory.
     let mut catalog_object: Option<(ObjectId, Object)> = None;
@@ -304,30 +320,6 @@ where
     document.save(output)?;
 
     println!("{:#?}", document.trailer);
-
-    Ok(())
-}
-
-pub fn fix_tagged_pdf(doc: &mut Document) -> lopdf::Result<()> {
-    let has_struct_tree = doc
-        .catalog()
-        .ok()
-        .and_then(|c| c.get(b"StructTreeRoot").ok())
-        .is_some();
-
-    if has_struct_tree {
-        println!("✅ StructTreeRoot found, adding MarkInfo...");
-
-        let mut mark_info = Dictionary::new();
-        mark_info.set("Marked", true);
-
-        doc.trailer.set("MarkInfo", Object::Dictionary(mark_info));
-        doc.trailer.set("Marked", true);
-
-        println!("✅ PDF fixed: now contains /MarkInfo /Marked true");
-    } else {
-        println!("⚠️ StructTreeRoot missing — nothing to fix");
-    }
 
     Ok(())
 }

@@ -7,8 +7,8 @@ use std::env;
 use std::path::PathBuf;
 use tempfile::{TempDir, tempdir};
 
-mod pdf_utils;
-use pdf_utils::merge_pdfs;
+mod _pdf_utils;
+use _pdf_utils::merge_pdfs::merge_pdfs;
 
 mod browser_utils;
 use crate::_adapter_registry::traits::ResourceAdapter;
