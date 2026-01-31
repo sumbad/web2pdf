@@ -6,6 +6,8 @@ use crate::{
     _adapters::_mdbook::detector::MdBookDetector,
 };
 
+const SANITATION_CODE_STYLES: &str = include_str!("../../../js/sanitation-code-style.js");
+
 const FORCE_LIGHT_THEME_JS: &str = r#"
 try {
   localStorage.setItem('mdbook-theme', 'light');
@@ -23,8 +25,15 @@ pub struct MdBookAdapter;
 #[async_trait::async_trait]
 impl ResourceAdapter for MdBookAdapter {
     async fn before_page(&self, page: &Page) -> Result<()> {
-        tracing::debug!("[MdBookAdapter] FORCE_LIGHT_THEME_JS");
+        tracing::info!("[MdBookAdapter] FORCE_LIGHT_THEME_JS");
         page.evaluate_on_new_document(FORCE_LIGHT_THEME_JS).await?;
+
+        Ok(())
+    }
+
+    async fn after_page(&self, page: &Page) -> Result<()> {
+        tracing::info!("[MdBookAdapter] SANITATION_STYLES");
+        page.evaluate(SANITATION_CODE_STYLES).await?;
 
         Ok(())
     }

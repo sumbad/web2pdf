@@ -74,7 +74,7 @@ async fn main() -> Result<()> {
     // Limit in debug mode
     toc = if debug_mode {
         println!("🐛 Debug mode: limiting to first 3 pages");
-        toc[0..3.min(toc.len())].iter().cloned().collect()
+        toc[5..6.min(toc.len())].iter().cloned().collect()
     } else {
         toc
     };
@@ -111,11 +111,11 @@ async fn main() -> Result<()> {
 
     let html = reqwest::get(url).await?.text().await?;
 
-    tracing::debug!("Register adapters");
+    tracing::info!("Register adapters");
     let mut registry = AdapterRegistry::new();
     registry.register::<MdBookAdapter>();
     let adapter = registry.detect(&html, &browser, url).await;
-    tracing::debug!("Detected adapter {:?}", adapter);
+    tracing::info!("Detected adapter {:?}", adapter);
 
     // 📂 2. Temporary folder for individual PDFs
     let dir = tempdir()?;

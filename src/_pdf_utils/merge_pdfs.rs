@@ -1,10 +1,9 @@
-use lopdf::{Bookmark, Dictionary, Document, Object, ObjectId, dictionary};
+use lopdf::{dictionary, Bookmark, Dictionary, Document, Object, ObjectId};
 use std::{
     collections::{BTreeMap, HashMap},
     path::Path,
 };
 
-use super::fix_tagged_pdf::fix_tagged_pdf;
 use super::flatten_nonstruct::sanitize_pdf_ua;
 use crate::toc::TocNode;
 
@@ -123,12 +122,6 @@ pub fn extract_and_shift_structure(doc: &mut Document, current_offset: i64) -> D
     }
 }
 
-///
-///
-///
-///
-///
-///
 pub fn assemble_merged_document(
     mut document: Document,
     catalog_id: ObjectId,
@@ -210,12 +203,6 @@ pub fn assemble_merged_document(
     Ok(document)
 }
 
-///
-///
-///
-///
-///
-///
 pub fn merge_pdfs<P>(toc: Vec<TocNode>, output: P) -> lopdf::Result<()>
 where
     P: AsRef<Path>,
@@ -263,7 +250,9 @@ where
             }
         };
 
-        sanitize_pdf_ua(&mut doc);
+        if let Err(e) = sanitize_pdf_ua(&mut doc) {
+            tracing::error!(target: "pdf_merge", "Failed to sanitize PDF UA structure: {:?}", e);
+        }
 
         // 📌 Ренумерация
         let start_id = max_id;
@@ -444,7 +433,7 @@ where
     }
 
     // ⚠️ ОЧЕНЬ РЕКОМЕНДУЕТСЯ: перенумеровать все объекты в самом конце для "чистоты" xref-таблицы
-    document.renumber_objects(); 
+    document.renumber_objects();
 
     document.compress();
     document.save(output)?;
