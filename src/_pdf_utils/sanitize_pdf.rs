@@ -3,7 +3,7 @@ use std::collections::HashSet;
 
 use super::helpers::*;
 
-pub fn sanitize_pdf_ua(doc: &mut Document) -> anyhow::Result<()> {
+pub fn sanitize_pdf(doc: &mut Document) -> anyhow::Result<()> {
     let root_id = find_struct_tree_root_id(doc).ok_or_else(|| anyhow::anyhow!("No root"))?;
 
     let mut all_nodes = Vec::new();

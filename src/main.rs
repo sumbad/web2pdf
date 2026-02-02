@@ -71,13 +71,11 @@ async fn main() -> Result<()> {
 
     let mut toc = toc::generate_toc(url).await?;
 
-    // Limit in debug mode
-    toc = if debug_mode {
-        println!("🐛 Debug mode: limiting to first 3 pages");
-        toc[5..6.min(toc.len())].iter().cloned().collect()
-    } else {
-        toc
-    };
+    // Limit in debug dev mode
+    if cfg!(debug_assertions) && debug_mode {
+        println!("🐛 Deb Debug mode: limiting pages");
+        toc = toc[6..7.min(toc.len())].to_vec();
+    }
 
     println!("TOC {:#?}", toc);
 

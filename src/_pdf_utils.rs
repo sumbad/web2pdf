@@ -1,4 +1,4 @@
 pub mod merge_pdfs;
 mod fix_tagged_pdf;
-mod flatten_nonstruct;
+mod sanitize_pdf;
 mod helpers;

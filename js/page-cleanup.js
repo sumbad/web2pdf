@@ -16,8 +16,12 @@ function pageCleanup() {
   function cleanNodeText(node) {
     if (node.tagName === "P") {
       node.innerHTML = node.innerHTML
-        .replace(" <code>", "<code>")
-        .replace("</code> ", "</code>");
+        .replace(/\s*<code([^>]*)>\s*/g, "<code$1> ")
+        .replace(/\s*<\/code>\s*/g, " </code>");
+
+      node.textContent = node.textContent
+        .replace(/</g, "‹")
+        .replace(/>/g, "›");
     }
 
     if (
