@@ -7,8 +7,8 @@ use std::env;
 use std::path::PathBuf;
 use tempfile::{TempDir, tempdir};
 
-mod pdf_utils;
-use pdf_utils::merge_pdfs;
+mod _pdf_utils;
+use _pdf_utils::merge_pdfs::merge_pdfs;
 
 mod browser_utils;
 use crate::_adapter_registry::traits::ResourceAdapter;
@@ -71,13 +71,11 @@ async fn main() -> Result<()> {
 
     let mut toc = toc::generate_toc(url).await?;
 
-    // Limit in debug mode
-    toc = if debug_mode {
-        println!("🐛 Debug mode: limiting to first 3 pages");
-        toc[0..3.min(toc.len())].iter().cloned().collect()
-    } else {
-        toc
-    };
+    // Limit in debug dev mode
+    if cfg!(debug_assertions) && debug_mode {
+        println!("🐛 Deb Debug mode: limiting pages");
+        toc = toc[6..7.min(toc.len())].to_vec();
+    }
 
     println!("TOC {:#?}", toc);
 
@@ -111,11 +109,11 @@ async fn main() -> Result<()> {
 
     let html = reqwest::get(url).await?.text().await?;
 
-    tracing::debug!("Register adapters");
+    tracing::info!("Register adapters");
     let mut registry = AdapterRegistry::new();
     registry.register::<MdBookAdapter>();
     let adapter = registry.detect(&html, &browser, url).await;
-    tracing::debug!("Detected adapter {:?}", adapter);
+    tracing::info!("Detected adapter {:?}", adapter);
 
     // 📂 2. Temporary folder for individual PDFs
     let dir = tempdir()?;

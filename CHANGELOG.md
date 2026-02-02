@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.0] - 2026-02-02
+
+### Added
+- **PDF structure sanitization**: Clean up PDF/UA structure by dissolving NonStruct elements and removing OBJR references
+- **PDF structure merging**: Merge PDF structure trees along with document content for multi-page PDFs
+- **Enhanced mdBook adapter**: Added page cleanup JavaScript for better mdBook PDF output
+- **PDF/UA compliance tools**: Helper functions for working with tagged PDF structure elements
+- **JavaScript sanitation utilities**: Code style cleanup scripts for web pages
+
+### Changed
+- **PDF merging architecture**: Refactored PDF merging to preserve structural elements and accessibility tags
+- **File organization**: Reorganized PDF utility modules into separate files for better maintainability
+- **Adapter system**: Enhanced mdBook adapter with additional page preparation steps
+
+### Fixed
+- **Structure preservation**: Maintain PDF/UA compliance when merging multiple PDF documents
+- **Parent-child relationships**: Properly wire structural element hierarchies in merged PDFs
+- **Page references**: Correctly shift StructParents indices when combining documents
+
+
 ## [0.2.0] - 2026-01-24
 
 ### Added
