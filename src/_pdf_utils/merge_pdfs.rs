@@ -1,4 +1,4 @@
-use lopdf::{Bookmark, Dictionary, Document, Object, ObjectId, dictionary};
+use lopdf::{dictionary, Bookmark, Dictionary, Document, Object, ObjectId};
 use std::{
     collections::{BTreeMap, HashMap},
     path::Path,
@@ -7,15 +7,15 @@ use std::{
 use super::sanitize_pdf::sanitize_pdf;
 use crate::toc::TocNode;
 
-/// Результат обработки структуры одного документа
+/// Result of processing the structure of a single document
 pub struct DocStructureData {
-    /// Смещенные элементы ParentTree (ключ-значение для массива Nums)
+    /// Shifted ParentTree elements (key-value pairs for the Nums array)
     pub shifted_nums: Vec<Object>,
-    /// Массив детей структуры (уже "сплющенный")
+    /// Array of structure children (already "flattened")
     pub root_kids: Vec<Object>,
-    /// Словарь соответствия кастомных тегов (RoleMap)
+    /// Dictionary mapping custom tags (RoleMap)
     pub role_map: Option<Dictionary>,
-    /// На сколько нужно сдвинуть офсет для следующего документа
+    /// How much to shift the offset for the next document
     pub next_offset_increment: i64,
 }
 
@@ -25,7 +25,7 @@ where
 {
     let toc_iter = toc.into_iter();
 
-    // 📌 Шаг 1.1: Используем версию 1.7 для поддержки современного Tagged PDF
+    // 📌 Step 1.1: Use version 1.7 to support modern Tagged PDF
     let mut document = Document::with_version("1.7");
 
     let mut max_id = 1;
@@ -34,8 +34,8 @@ where
     let mut documents_pages = BTreeMap::new();
     let mut documents_objects = BTreeMap::new();
 
-    // 📌 Шаг 1.2: Коллекторы для структурных данных (Этап 1)
-    // Мы сохраним StructTreeRoot каждого документа как отдельные объекты для последующего анализа
+    // 📌 Step 1.2: Collectors for structural data (Stage 1)
+    // We'll save each document's StructTreeRoot as separate objects for later analysis
     let mut source_struct_roots = Vec::new();
 
     let mut previous_lever_bookmark: HashMap<u8, Option<u32>> = HashMap::new();
@@ -70,7 +70,7 @@ where
             tracing::error!(target: "pdf_merge", "Failed to sanitize PDF UA structure: {:?}", e);
         }
 
-        // 📌 Ренумерация
+        // 📌 Renumbering
         let start_id = max_id;
         doc.renumber_objects_with(max_id);
         max_id = doc.max_id + 1;
@@ -81,20 +81,20 @@ where
             title, start_id, doc.max_id
         );
 
-        // 📌 Шаг 1.3: Экстракция данных StructTreeRoot
-        // Находим корень структуры в текущем документе
+        // 📌 Step 1.3: Extract StructTreeRoot data
+        // Find the structure root in the current document
         let mut struct_found = false;
         if let Ok(catalog) = doc.catalog() {
             if let Ok(struct_root_res) = catalog.get(b"StructTreeRoot") {
-                // Сохраняем ссылку на StructTreeRoot этого документа для этапов 2-4
+                // Save a reference to this document's StructTreeRoot for stages 2-4
                 if let Ok(id) = struct_root_res.as_reference() {
                     if let Ok(dict) = doc.get_object(id).and_then(|o| o.as_dict()) {
-                        // Клонируем словарь, так как doc будет поглощен или уничтожен
+                        // Clone the dictionary since doc will be consumed or destroyed
                         source_struct_roots.push(dict.clone());
 
                         struct_found = true;
 
-                        // Логируем ключи, которые есть в структуре (K, ParentTree, RoleMap и т.д.)
+                        // Log the keys present in the structure (K, ParentTree, RoleMap, etc.)
                         let keys: Vec<String> = dict
                             .iter()
                             .map(|(k, _)| String::from_utf8_lossy(k).into_owned())
@@ -109,23 +109,23 @@ where
             tracing::warn!(target: "pdf_merge", "No StructTreeRoot found in '{}'. This document might not be Tagged (PDF/UA).", title);
         }
 
-        // --- Вызов функции обработки структуры ---
+        // --- Call structure processing function ---
         let struct_data = extract_and_shift_structure(&mut doc, current_offset);
 
-        // 1. Собираем Nums (ParentTree)
+        // 1. Collect Nums (ParentTree)
         global_nums.extend(struct_data.shifted_nums);
 
-        // 2. Собираем детей (K) - теперь просто extend, без if let Some
+        // 2. Collect children (K) - now just extend, without if let Some
         global_kids.extend(struct_data.root_kids);
 
-        // 3. Собираем RoleMap
+        // 3. Collect RoleMap
         if let Some(rm) = struct_data.role_map {
             for (k, v) in rm {
                 global_role_map.set(k.clone(), v.clone());
             }
         }
 
-        // 4. Обновляем глобальный офсет для следующего файла
+        // 4. Update global offset for the next file
         current_offset += struct_data.next_offset_increment;
 
         tracing::debug!(
@@ -134,7 +134,7 @@ where
             title, global_nums.len() / 2, struct_data.next_offset_increment
         );
 
-        // 📑 Сбор страниц и объектов
+        // 📑 Collect pages and objects
         let mut file_page_count = 0;
         let mut is_first_page = true;
         for (_page_num, object_id) in doc.get_pages() {
@@ -154,7 +154,7 @@ where
             }
             pagenum += 1;
 
-            // Важно: сохраняем страницу
+            // Important: save the page
             if let Ok(obj) = doc.get_object(object_id) {
                 documents_pages.insert(object_id, obj.to_owned());
                 file_page_count += 1;
@@ -163,7 +163,7 @@ where
 
         tracing::debug!(target: "pdf_merge", "Collected {} pages from '{}'. Current total pagenum: {}", file_page_count, title, pagenum + file_page_count - 1);
 
-        // Поглощаем все объекты текущего документа
+        // Consume all objects from the current document
         documents_objects.extend(doc.objects);
     }
 
@@ -174,33 +174,33 @@ where
     );
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////
-    // --- ЭТАП 4: Определение базовых ID и синхронизация ---
+    // --- STAGE 4: Determine base IDs and synchronization ---
 
-    // ⚠️ КРИТИЧНО: Синхронизируем счетчик ID в новом документе с тем, что мы насчитали в цикле
+    // ⚠️ CRITICAL: Synchronize the ID counter in the new document with what we counted in the loop
     document.max_id = max_id;
 
     let mut catalog_id: Option<ObjectId> = None;
     let mut pages_id: Option<ObjectId> = None;
 
-    // Сначала просто переносим все общие объекты (шрифты, ресурсы)
+    // First, simply transfer all common objects (fonts, resources)
     for (id, obj) in &documents_objects {
         match obj.type_name().unwrap_or(b"") {
             b"Catalog" => {
                 if catalog_id.is_none() {
                     catalog_id = Some(*id);
-                    // ⚠️ ОБЯЗАТЕЛЬНО: вставляем в документ, чтобы assemble_merged_document мог его найти через get_mut
+                    // ⚠️ MANDATORY: insert into the document so assemble_merged_document can find it via get_mut
                     document.objects.insert(*id, obj.clone());
                 }
             }
             b"Pages" => {
                 if pages_id.is_none() {
                     pages_id = Some(*id);
-                    // ⚠️ ОБЯЗАТЕЛЬНО: вставляем в документ
+                    // ⚠️ MANDATORY: insert into the document
                     document.objects.insert(*id, obj.clone());
                 }
             }
             b"Page" | b"Outlines" | b"Outline" | b"StructTreeRoot" => {
-                // Эти типы мы пересобираем вручную, пропускаем
+                // These types we reassemble manually, skip them
             }
             _ => {
                 document.objects.insert(*id, obj.clone());
@@ -211,8 +211,8 @@ where
     let catalog_id = catalog_id.expect("Catalog not found");
     let pages_id = pages_id.expect("Pages root not found");
 
-    // --- ЭТАП 5: Финальная сборка ---
-    // Теперь assemble_merged_document получит ID, начинающиеся с max_id + 1 (т.е. с 370+)
+    // --- STAGE 5: Final assembly ---
+    // Now assemble_merged_document will get IDs starting from max_id + 1 (i.e., from 370+)
     let mut document = assemble_merged_document(
         document,
         catalog_id,
@@ -224,13 +224,13 @@ where
         current_offset,
     )?;
 
-    // --- ФИНАЛИЗАЦИЯ ---
+    // --- FINALIZATION ---
     document.trailer = dictionary! {
         "Root" => catalog_id,
         "Size" => (document.objects.len() as i64) + 1
     };
 
-    // ⚠️ Сдвигаем max_id на актуальное значение после добавления новых объектов структуры
+    // ⚠️ Shift max_id to the actual value after adding new structure objects
     document.max_id = document
         .objects
         .keys()
@@ -248,7 +248,7 @@ where
         }
     }
 
-    // ⚠️ ОЧЕНЬ РЕКОМЕНДУЕТСЯ: перенумеровать все объекты в самом конце для "чистоты" xref-таблицы
+    // ⚠️ HIGHLY RECOMMENDED: renumber all objects at the very end for "clean" xref table
     document.renumber_objects();
 
     document.compress();
@@ -271,13 +271,13 @@ fn extract_and_shift_structure(doc: &mut Document, current_offset: i64) -> DocSt
             .and_then(|o| o.as_reference())
         {
             if let Ok(str_root) = doc.get_object(str_root_ref).and_then(|o| o.as_dict()) {
-                // --- А. Получаем ParentTreeNextKey для расчета будущего смещения ---
+                // --- A. Get ParentTreeNextKey to calculate future offset ---
                 local_next_key = str_root
                     .get(b"ParentTreeNextKey")
                     .and_then(|o| o.as_i64())
                     .unwrap_or(0);
 
-                // --- Б. Сдвигаем ключи в ParentTree (Nums) ---
+                // --- B. Shift keys in ParentTree (Nums) ---
                 if let Ok(pt_ref) = str_root.get(b"ParentTree").and_then(|o| o.as_reference()) {
                     if let Ok(pt_dict) = doc.get_object(pt_ref).and_then(|o| o.as_dict()) {
                         if let Ok(nums) = pt_dict.get(b"Nums").and_then(|o| o.as_array()) {
@@ -294,14 +294,14 @@ fn extract_and_shift_structure(doc: &mut Document, current_offset: i64) -> DocSt
                     }
                 }
 
-                // --- В. Извлекаем и сплющиваем детей структуры (K) ---
+                // --- C. Extract and flatten structure children (K) ---
                 if let Ok(k_obj) = str_root.get(b"K") {
                     match k_obj {
                         Object::Array(arr) => {
                             root_kids.extend(arr.iter().cloned());
                         }
                         Object::Reference(id) => {
-                            // Проверяем: не является ли этот объект узлом типа "Document"
+                            // Check: is this object a "Document" type node
                             let is_doc_node = doc
                                 .get_object(*id)
                                 .ok()
@@ -311,7 +311,7 @@ fn extract_and_shift_structure(doc: &mut Document, current_offset: i64) -> DocSt
                                 == Some(b"Document");
 
                             if is_doc_node {
-                                // Если это Document, берем его детей (/K) напрямую
+                                // If it's a Document, take its children (/K) directly
                                 if let Ok(inner_k) =
                                     doc.get_object(*id).and_then(|o| o.as_dict()?.get(b"K"))
                                 {
@@ -321,7 +321,7 @@ fn extract_and_shift_structure(doc: &mut Document, current_offset: i64) -> DocSt
                                     }
                                 }
                             } else {
-                                // Если это не Document (например, Div или Part), просто добавляем ссылку
+                                // If it's not a Document (e.g., Div or Part), just add the reference
                                 root_kids.push(k_obj.clone());
                             }
                         }
@@ -329,7 +329,7 @@ fn extract_and_shift_structure(doc: &mut Document, current_offset: i64) -> DocSt
                     }
                 }
 
-                // --- Г. Извлекаем RoleMap ---
+                // --- D. Extract RoleMap ---
                 role_map = str_root
                     .get(b"RoleMap")
                     .ok()
@@ -339,7 +339,7 @@ fn extract_and_shift_structure(doc: &mut Document, current_offset: i64) -> DocSt
         }
     }
 
-    // --- Д. Сдвигаем StructParents на страницах (самое важное для связи) ---
+    // --- E. Shift StructParents on pages (most important for linking) ---
     for (_page_num, page_id) in doc.get_pages() {
         if let Ok(page_dict) = doc.get_object_mut(page_id).and_then(|o| o.as_dict_mut()) {
             if let Ok(old_sp) = page_dict.get(b"StructParents").and_then(|o| o.as_i64()) {
@@ -348,8 +348,8 @@ fn extract_and_shift_structure(doc: &mut Document, current_offset: i64) -> DocSt
         }
     }
 
-    // Рассчитываем инкремент: сколько индексов занял этот документ.
-    // Берем максимум между NextKey и реальным количеством страниц.
+    // Calculate increment: how many indices this document occupied.
+    // Take the maximum between NextKey and the actual number of pages.
     let page_count = doc.get_pages().len() as i64;
     let increment = local_next_key.max(page_count).max(1);
 
@@ -373,7 +373,7 @@ fn assemble_merged_document(
 ) -> lopdf::Result<Document> {
     tracing::info!(target: "pdf_merge", "--- Stage 4: Assembling final document structure ---");
 
-    // 1. Вставляем страницы в итоговый документ и связываем их с новым Pages ID
+    // 1. Insert pages into the final document and link them to the new Pages ID
     for (id, obj) in &documents_pages {
         if let Ok(dict) = obj.as_dict() {
             let mut dict = dict.clone();
@@ -383,13 +383,13 @@ fn assemble_merged_document(
     }
     tracing::debug!(target: "pdf_merge", "Linked {} pages to the new Pages root (ID: {:?})", documents_pages.len(), pages_id);
 
-    // 2. Создаем единый объект ParentTree (Nums)
+    // 2. Create a unified ParentTree object (Nums)
     let parent_tree_id = document.add_object(dictionary! {
         "Nums" => global_nums.clone(),
     });
     tracing::debug!(target: "pdf_merge", "Created ParentTree (ID: {:?}) with {} entries", parent_tree_id, global_nums.len() / 2);
 
-    // 3. Создаем единый корневой узел структуры (Document)
+    // 3. Create a unified root structure node (Document)
     let root_document_node_id = document.add_object(dictionary! {
         "Type" => "StructElem",
         "S" => "Document",
@@ -397,7 +397,7 @@ fn assemble_merged_document(
     });
     tracing::debug!(target: "pdf_merge", "Created root StructElem 'Document' (ID: {:?}) with {} top-level kids", root_document_node_id, global_kids.len());
 
-    // 4. ПРОШИВКА РОДИТЕЛЕЙ (/P): Это "святой грааль" видимости тегов в PDFix
+    // 4. PARENT WIRING (/P): This is the "holy grail" of tag visibility in PDFix
     let mut reparented_count = 0;
     for child_ref in &global_kids {
         if let Ok(child_id) = child_ref.as_reference() {
@@ -409,7 +409,7 @@ fn assemble_merged_document(
     }
     tracing::debug!(target: "pdf_merge", "Successfully reparented {} structural elements to the new root", reparented_count);
 
-    // 5. Создаем финальный StructTreeRoot
+    // 5. Create the final StructTreeRoot
     let struct_tree_root_id = document.add_object(dictionary! {
         "Type" => "StructTreeRoot",
         "K" => root_document_node_id,
@@ -419,7 +419,7 @@ fn assemble_merged_document(
     });
     tracing::info!(target: "pdf_merge", "Final StructTreeRoot created (ID: {:?})", struct_tree_root_id);
 
-    // 6. Обновляем Catalog: привязываем структуру и ставим флаг Marked
+    // 6. Update Catalog: link the structure and set the Marked flag
     if let Some(Object::Dictionary(cat_dict)) = document.objects.get_mut(&catalog_id) {
         cat_dict.set("Pages", pages_id);
         cat_dict.set("StructTreeRoot", struct_tree_root_id);
@@ -427,7 +427,7 @@ fn assemble_merged_document(
         tracing::debug!(target: "pdf_merge", "Updated Catalog with StructTreeRoot and Marked flag");
     }
 
-    // 7. Обновляем Pages: устанавливаем Count и Kids
+    // 7. Update Pages: set Count and Kids
     if let Some(Object::Dictionary(pag_dict)) = document.objects.get_mut(&pages_id) {
         pag_dict.set("Count", documents_pages.len() as u32);
         let kids_refs: Vec<Object> = documents_pages

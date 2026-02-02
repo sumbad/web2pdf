@@ -9,14 +9,14 @@ pub fn sanitize_pdf(doc: &mut Document) -> anyhow::Result<()> {
     let mut all_nodes = Vec::new();
     collect_all_node_ids(doc, root_id, &mut all_nodes, &mut HashSet::new());
 
-    // ВАЖНО: Обрабатываем в ОБРАТНОМ порядке (от листьев к корню)
-    // Это позволяет схлопывать вложенные NonStruct за один проход чисто
+    // IMPORTANT: Process in REVERSE order (from leaves to root)
+    // This allows collapsing nested NonStruct in a single clean pass
     for node_id in all_nodes.into_iter().rev() {
         let role = get_node_role(doc, node_id).unwrap_or_default();
 
         dissolve_nonstruct_in_node(doc, node_id)?;
 
-        // Отдельно чистим ссылки (убираем OBJR)
+        // Clean links separately (remove OBJR)
         if role == b"Link" {
             remove_objr_from_link(doc, node_id)?;
         }
@@ -26,8 +26,8 @@ pub fn sanitize_pdf(doc: &mut Document) -> anyhow::Result<()> {
 }
 
 fn dissolve_nonstruct_in_node(doc: &mut Document, parent_id: ObjectId) -> anyhow::Result<()> {
-    // Получаем текущий объект. Если это NonStruct, мы его проигнорируем,
-    // так как обработаем его, когда будем на уровне его родителя.
+    // Get the current object. If it's a NonStruct, we ignore it,
+    // as we'll process it when we're at its parent level.
     let Ok(obj) = doc.get_object(parent_id) else {
         return Ok(());
     };
@@ -72,8 +72,8 @@ fn dissolve_nonstruct_in_node(doc: &mut Document, parent_id: ObjectId) -> anyhow
                 for gc in grandchildren {
                     match gc {
                         Object::Integer(mcid) => {
-                            // Если вынимаем голый MCID, оборачиваем его в MCR словарь,
-                            // чтобы не потерять привязку к странице (Pg)
+                            // If we extract a bare MCID, wrap it in an MCR dictionary,
+                            // so we don't lose the page binding (Pg)
                             if let Some(pg) = &kid_pg {
                                 let mut mcr = Dictionary::new();
                                 mcr.set("Type", Object::Name(b"MCR".to_vec()));
@@ -85,10 +85,10 @@ fn dissolve_nonstruct_in_node(doc: &mut Document, parent_id: ObjectId) -> anyhow
                             }
                         }
                         Object::Reference(gc_id) => {
-                            // Если вынимаем тег (P, Link и т.д.), обновляем ему родителя
+                            // If we extract a tag (P, Link, etc.), update its parent
                             set_parent_link(doc, gc_id, parent_id);
 
-                            // Если у тега нет своей страницы, а у NonStruct была - передаем её тегу
+                            // If the tag doesn't have its own page, but NonStruct had one - pass it to the tag
                             if let Ok(Object::Dictionary(gc_dict)) = doc.get_object_mut(gc_id) {
                                 if !gc_dict.has(b"Pg") {
                                     if let Some(pg) = &kid_pg {
@@ -144,7 +144,7 @@ fn remove_objr_from_link(doc: &mut Document, link_id: ObjectId) -> anyhow::Resul
     for kid in kids {
         let is_objr = match &kid {
             Object::Reference(id) => {
-                // Проверяем объект, на который ссылаемся
+                // Check the object we're referencing
                 if let Ok(obj) = doc.get_object(*id) {
                     if let Ok(d) = obj.as_dict() {
                         d.get(b"Type").and_then(|t| t.as_name()).ok() == Some(b"OBJR")
@@ -162,7 +162,7 @@ fn remove_objr_from_link(doc: &mut Document, link_id: ObjectId) -> anyhow::Resul
         if is_objr {
             changed = true;
             tracing::debug!("✂️ Removed OBJR child from Link {:?}", link_id);
-            continue; // Не добавляем OBJR в новый список детей
+            continue; // Don't add OBJR to the new children list
         }
         new_kids.push(kid);
     }
