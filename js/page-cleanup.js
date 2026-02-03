@@ -18,10 +18,6 @@ function pageCleanup() {
       node.innerHTML = node.innerHTML
         .replace(/\s*<code([^>]*)>\s*/g, "<code$1> ")
         .replace(/\s*<\/code>\s*/g, " </code>");
-
-      node.textContent = node.textContent
-        .replace(/</g, "‹")
-        .replace(/>/g, "›");
     }
 
     if (

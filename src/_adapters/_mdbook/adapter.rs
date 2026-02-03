@@ -6,8 +6,7 @@ use crate::{
     _adapters::_mdbook::detector::MdBookDetector,
 };
 
-const SANITATION_CODE_STYLES: &str = include_str!("../../../js/sanitation-code-style.js");
-const PAGE_CLEANUP_JS: &str = include_str!("../../../js/page-cleanup.js");
+const MDBOOK_SANITATION: &str = include_str!("../../../js/mdbook-sanitation.js");
 
 const FORCE_LIGHT_THEME_JS: &str = r#"
 try {
@@ -33,21 +32,15 @@ impl ResourceAdapter for MdBookAdapter {
     }
 
     async fn after_page(&self, page: &Page) -> Result<()> {
-        tracing::info!("[MdBookAdapter] SANITATION_STYLES");
-        page.evaluate(SANITATION_CODE_STYLES).await?;
-
-        let js_remove_result = page.evaluate_function(PAGE_CLEANUP_JS).await?;
-        tracing::debug!("Executing page cleanup result {js_remove_result:?}");
-        match js_remove_result.into_value::<bool>() {
+        tracing::info!("[MdBookAdapter] MDBOOK_SANITATION");
+        match page.evaluate(MDBOOK_SANITATION).await?.into_value::<bool>() {
             Ok(d) => {
-                tracing::debug!("Page cleanup completed successfully, {d}");
-                println!("  ✅ Page cleaned");
+                tracing::debug!("✅ Page script completed successfully, {d}");
             }
             Err(e) => {
-                tracing::warn!("Failed to parse cleanup result: {:?}, but continuing", e);
-                println!("  🚨 Page cleaned (with warnings)");
+                tracing::warn!("🚨 Failed to parse cleanup result: {:?}, but continuing", e);
             }
-        }
+        };
 
         Ok(())
     }
