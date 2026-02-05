@@ -28,7 +28,7 @@ const PAGE_WAIT_JS: &str = include_str!("../js/page-wait.js");
 const TITLE_EXTRACT_JS: &str = include_str!("../js/title-extract.js");
 const PREPARE_HABR: &str = include_str!("../js/prepare-habr.js");
 
-const LOAD_PAGE_TIMEOUT_SEC: u64 = 30;
+const LOAD_PAGE_TIMEOUT_SEC: u64 = 10;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -50,13 +50,12 @@ async fn main() -> Result<()> {
     let browser_path = find_browser().context("Browser not found!")?;
     println!("Use browser: {}", browser_path);
 
-    // Initialize logging based on debug flag
+    use tracing_subscriber::EnvFilter;
+
     if debug_mode {
-        unsafe {
-            std::env::set_var("RUST_LOG", "debug");
-        }
         tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
+            // .with_env_filter(EnvFilter::new("web2pdf=debug,chromiumoxide=trace,chromiumoxide_cdp=trace,chromiumoxide_types=trace,tokio=debug,info"))
+            .with_env_filter(EnvFilter::new("web2pdf=debug,chromiumoxide=debug,chromiumoxide_cdp=debug,chromiumoxide_types=debug,tokio=debug,info"))
             .with_target(true)
             .with_thread_ids(true)
             .with_file(true)
@@ -65,7 +64,7 @@ async fn main() -> Result<()> {
         println!("🐛 Debug mode enabled");
     } else {
         tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::INFO)
+            .with_env_filter(EnvFilter::new("web2pdf=info"))
             .init();
     }
 
@@ -74,7 +73,7 @@ async fn main() -> Result<()> {
     // Limit in debug dev mode
     if cfg!(debug_assertions) && debug_mode {
         println!("🐛 Deb Debug mode: limiting pages");
-        toc = toc[10..11.min(toc.len())].to_vec();
+        toc = toc[0..1.min(toc.len())].to_vec();
     }
 
     println!("TOC {:#?}", toc);
@@ -107,7 +106,9 @@ async fn main() -> Result<()> {
         }
     });
 
+    tracing::debug!("Fetching HTML from URL: {}", url);
     let html = reqwest::get(url).await?.text().await?;
+    tracing::debug!("HTML fetched, length: {} bytes", html.len());
 
     tracing::info!("Register adapters");
     let mut registry = AdapterRegistry::new();
@@ -121,18 +122,22 @@ async fn main() -> Result<()> {
     let toc_len = toc.len();
     // 🌀 3. Process each page
     for (i, node) in toc.iter_mut().enumerate() {
-        println!(
-            "→ [{}/{}] Processing {}",
-            i + 1,
-            toc_len,
-            node.href
-        );
+        println!("→ [{}/{}] Processing {}", i + 1, toc_len, node.href);
 
         process_page(i, node, &browser, &dir, adapter).await?;
     }
 
     browser.close().await?;
     handle.await?;
+
+    // Filter only TOC with file_path
+    toc.retain(|it| it.file_path.is_some());
+
+    if toc.is_empty() {
+        println!("ERROR: No files for merging");
+
+        return Ok(());
+    }
 
     // 🧩 4. Merge PDFs
     let output_path = PathBuf::from(output);
@@ -155,32 +160,33 @@ async fn process_page(
     println!("  🌐 Creating new page...");
 
     let page = browser.new_page("about:blank").await?;
+    tracing::debug!("Page created");
 
     adapter.before_page(&page).await?;
+    tracing::debug!("adapter.before_page completed");
 
     let link = &node.href;
+    tracing::debug!("Navigating to: {}", link);
 
-    let page = tokio::time::timeout(
+    // Navigate with timeout, but continue even if timeout occurs
+    let timeout_result = tokio::time::timeout(
         std::time::Duration::from_secs(LOAD_PAGE_TIMEOUT_SEC),
         page.goto(link),
     )
     .await;
 
-    let page = match page {
-        Ok(p) => p,
+    match &timeout_result {
+        Ok(Ok(_)) => {
+            tracing::info!("Navigation completed successfully");
+        }
+        Ok(Err(e)) => {
+            tracing::error!("Navigation failed: {}", e);
+            return Ok(());
+        }
         Err(_) => {
-            println!("  ❌ Timeout creating page after {LOAD_PAGE_TIMEOUT_SEC} seconds");
-            return Ok(());
+            tracing::warn!("Timeout after {LOAD_PAGE_TIMEOUT_SEC} seconds, continuing anyway");
         }
-    };
-
-    let page = match page {
-        Ok(p) => p,
-        Err(e) => {
-            println!("  ❌ Failed to create page: {}", e);
-            return Ok(());
-        }
-    };
+    }
 
     page.emulate_media_type(MediaTypeParams::Print).await?;
 
@@ -209,7 +215,7 @@ async fn process_page(
 
     println!("  ✅ Page created successfully");
 
-    adapter.after_page(page).await?;
+    adapter.after_page(&page).await?;
 
     // TODO: collect title inside TocNode
     let title = if let Some(ref t) = node.title {
@@ -245,8 +251,10 @@ async fn process_page(
 
     // TODO: create HabrAdapter
     if link.starts_with("https://habr.com") {
+        tracing::debug!("Executing PREPARE_HABR script");
         println!("  🏗️ : PREPARE_HABR");
         page.evaluate(PREPARE_HABR).await?;
+        tracing::debug!("PREPARE_HABR script completed");
     }
 
     // tokio::time::sleep(std::time::Duration::from_millis(10000)).await;
@@ -272,12 +280,14 @@ async fn process_page(
     // pdf_opts.generate_document_outline = Some(true);
 
     println!("  💾 Saving PDF to {}...", pdf_path.display());
+    tracing::debug!("Starting PDF save operation");
     let save_result = tokio::time::timeout(
         std::time::Duration::from_secs(10),
         page.save_pdf(pdf_opts, &pdf_path),
     )
     .await;
 
+    tracing::debug!("PDF save operation completed");
     match save_result {
         Ok(Ok(_)) => {
             tracing::debug!("PDF saved successfully to: {}", pdf_path.display());
