@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.2] - 2026-02-05
+
+### Fixed
+- **Navigation timeout**: Fixed indefinite hanging on pages with long-loading external resources (ads, trackers) by continuing after timeout instead of failing
+
+### Changed
+- **Reduced timeout**: Lowered navigation timeout from 30s to 10s for faster failure detection
+- **Logging system**: Migrated to `EnvFilter` for fine-grained control over log levels per crate
+- **Debug logging**: Added detailed debug traces for HTML fetching, page creation, navigation, and PDF operations
+- **TOC filtering**: Changed from `filter().collect()` to `retain()` for better performance and no cloning
+- **Error handling**: Added check for empty TOC after filtering to prevent merge errors
+
+
 ## [0.3.1] - 2026-02-03
 
 ### Fixed
