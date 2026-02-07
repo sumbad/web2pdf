@@ -73,7 +73,7 @@ async fn main() -> Result<()> {
     // Limit in debug dev mode
     if cfg!(debug_assertions) && debug_mode {
         println!("🐛 Deb Debug mode: limiting pages");
-        toc = toc[0..1.min(toc.len())].to_vec();
+        toc = toc[0..3.min(toc.len())].to_vec();
     }
 
     println!("TOC {:#?}", toc);

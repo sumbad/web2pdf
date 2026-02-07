@@ -56,7 +56,7 @@ where
             .clone()
             .unwrap_or_else(|| file_path.to_string_lossy().to_string());
 
-        tracing::info!(target: "pdf_merge", "--- Stage 1: Processing file: {:?} ---", file_path);
+        tracing::debug!("Merging: \"{:?}\"", title);
 
         let mut doc = match Document::load(file_path) {
             Ok(d) => d,
@@ -67,7 +67,7 @@ where
         };
 
         if let Err(e) = sanitize_pdf(&mut doc) {
-            tracing::error!(target: "pdf_merge", "Failed to sanitize PDF UA structure: {:?}", e);
+            tracing::error!("Failed to sanitize PDF structure: {:?}", e);
         }
 
         // 📌 Renumbering
@@ -76,9 +76,10 @@ where
         max_id = doc.max_id + 1;
 
         tracing::debug!(
-            target: "pdf_merge",
             "Renumbered objects for '{}': IDs shifted from {} to {}",
-            title, start_id, doc.max_id
+            title,
+            start_id,
+            doc.max_id
         );
 
         // 📌 Step 1.3: Extract StructTreeRoot data
@@ -99,14 +100,21 @@ where
                             .iter()
                             .map(|(k, _)| String::from_utf8_lossy(k).into_owned())
                             .collect();
-                        tracing::debug!(target: "pdf_merge", "Found StructTreeRoot (ID: {:?}) with keys: {:?}", id, keys);
+                        tracing::debug!(
+                            "Found StructTreeRoot (ID: {:?}) with keys: {:?}",
+                            id,
+                            keys
+                        );
                     }
                 }
             }
         }
 
         if !struct_found {
-            tracing::warn!(target: "pdf_merge", "No StructTreeRoot found in '{}'. This document might not be Tagged (PDF/UA).", title);
+            tracing::warn!(
+                "No StructTreeRoot found in '{}'. This document might not be Tagged (PDF/UA).",
+                title
+            );
         }
 
         // --- Call structure processing function ---
@@ -129,9 +137,10 @@ where
         current_offset += struct_data.next_offset_increment;
 
         tracing::debug!(
-            target: "pdf_merge",
             "Processed structure for '{}': Shifted {} Nums, incremented offset by {}",
-            title, global_nums.len() / 2, struct_data.next_offset_increment
+            title,
+            global_nums.len() / 2,
+            struct_data.next_offset_increment
         );
 
         // 📑 Collect pages and objects
@@ -161,16 +170,22 @@ where
             }
         }
 
-        tracing::debug!(target: "pdf_merge", "Collected {} pages from '{}'. Current total pagenum: {}", file_page_count, title, pagenum + file_page_count - 1);
+        tracing::debug!(
+            "Collected {} pages from '{}'. Current total pagenum: {}",
+            file_page_count,
+            title,
+            pagenum + file_page_count - 1
+        );
 
         // Consume all objects from the current document
         documents_objects.extend(doc.objects);
     }
 
     tracing::info!(
-        target: "pdf_merge",
         "Stage 1 complete: Total objects: {}, Total pages: {}, Struct roots collected: {}",
-        documents_objects.len(), documents_pages.len(), source_struct_roots.len()
+        documents_objects.len(),
+        documents_pages.len(),
+        source_struct_roots.len()
     );
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -238,7 +253,8 @@ where
         .max()
         .unwrap_or(max_id);
 
-    document.adjust_zero_pages();
+    // Don't use auto adjusting due to we have a custom merge algorithm
+    // document.adjust_zero_pages();
 
     if !document.bookmarks.is_empty() {
         if let Some(outline_id) = document.build_outline() {
@@ -258,13 +274,18 @@ where
     Ok(())
 }
 
+/// Extracts and shifts PDF structure elements for merging multiple PDFs
+///
+/// This function processes the StructTreeRoot of a document to extract
+/// structural elements needed for PDF/UA accessibility compliance, then
+/// shifts their identifiers to avoid conflicts when merging multiple documents.
 fn extract_and_shift_structure(doc: &mut Document, current_offset: i64) -> DocStructureData {
     let mut shifted_nums = Vec::new();
     let mut root_kids = Vec::new();
     let mut role_map = None;
     let mut local_next_key = 0i64;
 
-    // 1. Пытаемся получить StructTreeRoot через Каталог
+    // Try to get StructTreeRoot by Catalog
     if let Ok(catalog) = doc.catalog() {
         if let Ok(str_root_ref) = catalog
             .get(b"StructTreeRoot")
@@ -371,7 +392,7 @@ fn assemble_merged_document(
     global_role_map: Dictionary,
     final_offset: i64,
 ) -> lopdf::Result<Document> {
-    tracing::info!(target: "pdf_merge", "--- Stage 4: Assembling final document structure ---");
+    tracing::info!("--- Stage 4: Assembling final document structure ---");
 
     // 1. Insert pages into the final document and link them to the new Pages ID
     for (id, obj) in &documents_pages {
@@ -381,13 +402,21 @@ fn assemble_merged_document(
             document.objects.insert(*id, Object::Dictionary(dict));
         }
     }
-    tracing::debug!(target: "pdf_merge", "Linked {} pages to the new Pages root (ID: {:?})", documents_pages.len(), pages_id);
+    tracing::debug!(
+        "Linked {} pages to the new Pages root (ID: {:?})",
+        documents_pages.len(),
+        pages_id
+    );
 
     // 2. Create a unified ParentTree object (Nums)
     let parent_tree_id = document.add_object(dictionary! {
         "Nums" => global_nums.clone(),
     });
-    tracing::debug!(target: "pdf_merge", "Created ParentTree (ID: {:?}) with {} entries", parent_tree_id, global_nums.len() / 2);
+    tracing::debug!(
+        "Created ParentTree (ID: {:?}) with {} entries",
+        parent_tree_id,
+        global_nums.len() / 2
+    );
 
     // 3. Create a unified root structure node (Document)
     let root_document_node_id = document.add_object(dictionary! {
@@ -395,7 +424,11 @@ fn assemble_merged_document(
         "S" => "Document",
         "K" => global_kids.clone(),
     });
-    tracing::debug!(target: "pdf_merge", "Created root StructElem 'Document' (ID: {:?}) with {} top-level kids", root_document_node_id, global_kids.len());
+    tracing::debug!(
+        "Created root StructElem 'Document' (ID: {:?}) with {} top-level kids",
+        root_document_node_id,
+        global_kids.len()
+    );
 
     // 4. PARENT WIRING (/P): This is the "holy grail" of tag visibility in PDFix
     let mut reparented_count = 0;
@@ -407,7 +440,10 @@ fn assemble_merged_document(
             }
         }
     }
-    tracing::debug!(target: "pdf_merge", "Successfully reparented {} structural elements to the new root", reparented_count);
+    tracing::debug!(
+        "Successfully reparented {} structural elements to the new root",
+        reparented_count
+    );
 
     // 5. Create the final StructTreeRoot
     let struct_tree_root_id = document.add_object(dictionary! {
@@ -417,26 +453,41 @@ fn assemble_merged_document(
         "ParentTreeNextKey" => final_offset as i32,
         "RoleMap" => global_role_map,
     });
-    tracing::info!(target: "pdf_merge", "Final StructTreeRoot created (ID: {:?})", struct_tree_root_id);
+    tracing::info!(
+        "Final StructTreeRoot created (ID: {:?})",
+        struct_tree_root_id
+    );
 
     // 6. Update Catalog: link the structure and set the Marked flag
     if let Some(Object::Dictionary(cat_dict)) = document.objects.get_mut(&catalog_id) {
         cat_dict.set("Pages", pages_id);
         cat_dict.set("StructTreeRoot", struct_tree_root_id);
         cat_dict.set("MarkInfo", dictionary! { "Marked" => true });
-        tracing::debug!(target: "pdf_merge", "Updated Catalog with StructTreeRoot and Marked flag");
+        tracing::debug!("Updated Catalog with StructTreeRoot and Marked flag");
     }
 
-    // 7. Update Pages: set Count and Kids
+    tracing::debug!("Update Pages: set Count and Kids");
     if let Some(Object::Dictionary(pag_dict)) = document.objects.get_mut(&pages_id) {
         pag_dict.set("Count", documents_pages.len() as u32);
+        // MANDATORY set Type
+        pag_dict.set("Type", Object::Name(b"Pages".to_vec()));
+
+        // CRITICAL for ACROBAT: A page's root should not have a parent
+        // If the object is taken from the original PDF, there might be an old Parent left.
+        pag_dict.remove(b"Parent");
+
         let kids_refs: Vec<Object> = documents_pages
             .keys()
             .copied()
             .map(Object::Reference)
             .collect();
         pag_dict.set("Kids", kids_refs);
-        tracing::debug!(target: "pdf_merge", "Updated Pages root with {} page references", documents_pages.len());
+
+        tracing::debug!(
+            "Updated Pages root (ID: {:?}) with {} page references",
+            pages_id,
+            documents_pages.len()
+        );
     }
 
     Ok(document)
