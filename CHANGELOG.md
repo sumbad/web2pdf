@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.3] - 2026-02-07
+
+### Fixed
+- **Acrobat compatibility**: Fixed critical issue where root Pages node incorrectly retained a Parent reference, causing display problems in Acrobat Reader
+- **Page loading timeout**: Now actively stops page loading after timeout instead of continuing, equivalent to pressing browser stop button
+- **PDF save timeout**: Increased PDF save timeout from 10s to 60s to handle tagged PDF generation
+
+### Changed
+- **Article preparation**: Simplified preprocessing script by removing comment loading and expansion logic
+- **Navigation timeout**: Reduced from 10s to 5s for faster failure detection
+
+
+---
+
 ## [0.3.2] - 2026-02-05
 
 ### Fixed
