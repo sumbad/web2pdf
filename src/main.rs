@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use chromiumoxide::cdp::browser_protocol::page::PrintToPdfParams;
+use chromiumoxide::cdp::browser_protocol::page::{PrintToPdfParams, StopLoadingParams};
 use chromiumoxide::{browser::Browser, page::MediaTypeParams};
 use futures::StreamExt;
 
@@ -28,7 +28,7 @@ const PAGE_WAIT_JS: &str = include_str!("../js/page-wait.js");
 const TITLE_EXTRACT_JS: &str = include_str!("../js/title-extract.js");
 const PREPARE_HABR: &str = include_str!("../js/prepare-habr.js");
 
-const LOAD_PAGE_TIMEOUT_SEC: u64 = 10;
+const LOAD_PAGE_TIMEOUT_SEC: u64 = 5;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -184,7 +184,8 @@ async fn process_page(
             return Ok(());
         }
         Err(_) => {
-            tracing::warn!("Timeout after {LOAD_PAGE_TIMEOUT_SEC} seconds, continuing anyway");
+            tracing::warn!("Timeout after {LOAD_PAGE_TIMEOUT_SEC} seconds, stopping page load");
+            page.execute(StopLoadingParams::default()).await?;
         }
     }
 
@@ -257,7 +258,8 @@ async fn process_page(
         tracing::debug!("PREPARE_HABR script completed");
     }
 
-    // tokio::time::sleep(std::time::Duration::from_millis(10000)).await;
+    // DEBUG
+    // tokio::time::sleep(std::time::Duration::from_mins(10)).await;
 
     println!("  🖨️ Generating PDF...");
     tracing::debug!("Configuring PDF generation options");
@@ -282,7 +284,7 @@ async fn process_page(
     println!("  💾 Saving PDF to {}...", pdf_path.display());
     tracing::debug!("Starting PDF save operation");
     let save_result = tokio::time::timeout(
-        std::time::Duration::from_secs(10),
+        std::time::Duration::from_secs(60),
         page.save_pdf(pdf_opts, &pdf_path),
     )
     .await;
@@ -295,12 +297,10 @@ async fn process_page(
         }
         Ok(Err(e)) => {
             tracing::error!("Failed to save PDF: {}", e);
-            println!("  ❌ Failed to save PDF: {}", e);
             return Ok(());
         }
-        Err(_) => {
-            tracing::error!("Timeout saving PDF after 10 seconds");
-            println!("  ❌ Timeout saving PDF after 60 seconds");
+        Err(e) => {
+            tracing::error!("Timeout saving PDF after 60 seconds. Error: {}", e);
             return Ok(());
         }
     }

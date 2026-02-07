@@ -1,8 +1,8 @@
-async function prepareHabr() {
+async function main() {
   console.log("[HABR] preprocessing start");
 
   /************************************************************
-   * 1. Hide header, footer, sidebars and ads
+   * Hide header, footer, sidebars and ads
    ************************************************************/
   const hideSelectors = [
     ".tm-header",
@@ -19,6 +19,14 @@ async function prepareHabr() {
     ".tm-adapter-loader",
     ".tm-user-menu",
     ".tm-site-menu",
+    ".header-banner-wrapper",
+    ".digest-subscription",
+    ".sponsor-block",
+    ".tm-project-block--vacancies",
+    ".tm-article-blocks__comments",
+    ".tm-page__sidebar",
+    ".tm-page-article__banner",
+    ".tm-events-block",
   ];
 
   hideSelectors.forEach((sel) => {
@@ -28,7 +36,7 @@ async function prepareHabr() {
   });
 
   /************************************************************
-   * 2. Remove gray background and visual separators
+   * Remove gray background and visual separators
    ************************************************************/
   document.body.style.background = "white";
   document.documentElement.style.background = "white";
@@ -43,51 +51,7 @@ async function prepareHabr() {
   });
 
   /************************************************************
-   * 3. Force comments section to render
-   ************************************************************/
-  const commentsAnchor = document.querySelector('a[href="#comments"]');
-  if (commentsAnchor) {
-    commentsAnchor.click();
-  }
-
-  // Scroll page to bottom to trigger IntersectionObserver
-  for (let i = 0; i < 8; i++) {
-    window.scrollBy(0, window.innerHeight);
-    await new Promise((r) => setTimeout(r, 250));
-  }
-
-  // Force layout recalculation
-  window.dispatchEvent(new Event("scroll"));
-  window.dispatchEvent(new Event("resize"));
-
-  /************************************************************
-   * 4. Expand all comment threads
-   ************************************************************/
-  function clickAllButtons(selector) {
-    let changed = true;
-    let rounds = 0;
-
-    while (changed && rounds < 20) {
-      rounds++;
-      changed = false;
-
-      document.querySelectorAll(selector).forEach((btn) => {
-        if (!btn.dataset._clicked && btn.offsetParent !== null) {
-          btn.dataset._clicked = "1";
-          btn.click();
-          changed = true;
-        }
-      });
-    }
-  }
-
-  clickAllButtons(".tm-comments__expand-button");
-  clickAllButtons(".tm-comments__more-button");
-  clickAllButtons("button[data-test-id='comment-toolbar-toggle-answers']");
-  clickAllButtons("button[data-test-id='load-more-comments']");
-
-  /************************************************************
-   * 5. Remove registration prompts
+   * Remove registration prompts
    ************************************************************/
   document
     .querySelectorAll(".tm-block, .tm-article-body__register")
@@ -98,7 +62,7 @@ async function prepareHabr() {
     });
 
   /************************************************************
-   * 6. Remove recommendations and feed blocks
+   * Remove recommendations and feed blocks
    ************************************************************/
   const killRecommends = [
     ".tm-article-blocks__comments + *", // remove all blocks after comments
@@ -117,7 +81,7 @@ async function prepareHabr() {
   });
 
   /************************************************************
-   * 7. Normalize positioning for PDF
+   * Normalize positioning for PDF
    ************************************************************/
   document.querySelectorAll("*").forEach((el) => {
     const st = getComputedStyle(el);
@@ -127,7 +91,7 @@ async function prepareHabr() {
   });
 
   /************************************************************
-   * 8. Wait for images (article + comments)
+   * Wait for images (article + comments)
    ************************************************************/
   // const imgs = Array.from(document.images).filter(
   //   (img) => img.complete === false,
