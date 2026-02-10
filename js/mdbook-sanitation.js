@@ -35,7 +35,7 @@ async function main() {
    * and normalizing whitespace. Also fixes code element spacing.
    */
   function cleanNodeText(node) {
-    if (typeof node.innerHTML === 'string') {
+    if (typeof node.innerHTML === "string") {
       node.innerHTML = node.innerHTML
         .replace(/\s+<code([^>]*)>\s*/g, " <code$1>")
         .replace(/\s*<\/code>\s+/g, "</code> ")
@@ -79,6 +79,21 @@ async function main() {
 
             border-radius: none !important;;
             padding: unset !important;;
+        }
+
+        /* Safe lists for Chrome → PDF */
+        ul, ol {
+          display: block !important;
+          page-break-inside: auto;
+        }
+        li {
+          display: list-item !important;
+          page-break-inside: avoid;
+          break-inside: avoid;
+          margin-bottom: 4pt;
+        }
+        li::before, li::after {
+          display: none !important;
         }
     `;
   document.head.appendChild(style);
