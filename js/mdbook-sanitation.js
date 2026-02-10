@@ -35,10 +35,12 @@ async function main() {
    * and normalizing whitespace. Also fixes code element spacing.
    */
   function cleanNodeText(node) {
-    if (typeof node.innerHTML === 'function') {
+    if (typeof node.innerHTML === 'string') {
       node.innerHTML = node.innerHTML
-        .replace(/\s*<code([^>]*)>\s*/g, " <code$1>")
-        .replace(/\s*<\/code>\s*/g, "</code> ");
+        .replace(/\s+<code([^>]*)>\s*/g, " <code$1>")
+        .replace(/\s*<\/code>\s+/g, "</code> ")
+        .replace(/\s+<a([^>]*)>\s*/g, " <a$1>")
+        .replace(/\s*<\/a>\s+/g, "</a> ");
     }
 
     if (
@@ -56,7 +58,7 @@ async function main() {
 
   // Clean text in common content elements
   document
-    .querySelectorAll("p, td, div, span, li, h1, h2, h3, h4, h5, h6")
+    .querySelectorAll("p, td, div, span, li, h1, h2, h3, h4, h5, h6, a")
     .forEach((el) => {
       cleanNodeText(el);
     });
@@ -65,7 +67,7 @@ async function main() {
 
   const style = document.createElement("style");
   style.innerHTML = `
-        p > code {
+        p > code, a > code {
             display: inline !important;
             position: static !important;
             float: none !important;
