@@ -1,8 +1,8 @@
 ## Features
 - [ ] add support for settings through an optional config file
-- [ ] create more convenient params and help format
 - [ ] should be able to turn on/off some features: system fonts, removing empty paragraphs, etc.
 - [ ] use [How to Create Printer-friendly Pages with CSS](https://www.sitepoint.com/css-printer-friendly-pages/)
+- [x] create more convenient params and help format
 - [x] special processing for printing articles from habr
 
 ## Bugs

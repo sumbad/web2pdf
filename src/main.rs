@@ -1,9 +1,9 @@
 use anyhow::{Context, Result};
 use chromiumoxide::cdp::browser_protocol::page::{PrintToPdfParams, StopLoadingParams};
 use chromiumoxide::{browser::Browser, page::MediaTypeParams};
+use clap::Parser;
 use futures::StreamExt;
 
-use std::env;
 use std::path::PathBuf;
 use tempfile::{TempDir, tempdir};
 
@@ -30,22 +30,29 @@ const PREPARE_HABR: &str = include_str!("../js/prepare-habr.js");
 
 const LOAD_PAGE_TIMEOUT_SEC: u64 = 5;
 
+/// Convert web pages to a PDF document
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    /// Source URL address
+    url: String,
+
+    /// Output file name
+    #[arg(default_value = "output.pdf")]
+    output: String,
+
+    /// Turn debugging information on
+    #[arg(short, long)]
+    debug: bool,
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 3 {
-        eprintln!("Usage: {} [--debug] <URL> <output.pdf>", args[0]);
-        std::process::exit(1);
-    }
+    let args = Args::parse();
 
-    let mut arg_idx = 1;
-    let debug_mode = args.get(arg_idx) == Some(&"--debug".to_string());
-    if debug_mode {
-        arg_idx += 1;
-    }
-
-    let url = &args[arg_idx];
-    let output = &args[arg_idx + 1];
+    let url = &args.url;
+    let output = &args.output;
+    let debug_mode = args.debug;
 
     let browser_path = find_browser().context("Browser not found!")?;
     println!("Use browser: {}", browser_path);
@@ -95,10 +102,10 @@ async fn main() -> Result<()> {
                     // @see: https://github.com/mattsse/chromiumoxide/issues/266
                     let msg = format!("{:?}", e);
                     if msg.contains("data did not match any variant of untagged enum Message") {
-                        // eprintln!("⚠️ Parsing error: {}", e);
+                        tracing::debug!("⚠️ Parsing error: {}", e);
                         continue;
                     } else {
-                        eprintln!("Handler error: {:?}", e);
+                        tracing::error!("Handler error: {:?}", e);
                         break;
                     }
                 }
