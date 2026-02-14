@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use chromiumoxide::cdp::browser_protocol::page::{PrintToPdfParams, StopLoadingParams};
 use chromiumoxide::{browser::Browser, page::MediaTypeParams};
 use clap::Parser;
+use clap::builder::styling::{AnsiColor, Styles};
 use futures::StreamExt;
 
 use std::path::PathBuf;
@@ -30,9 +31,20 @@ const PREPARE_HABR: &str = include_str!("../js/prepare-habr.js");
 
 const LOAD_PAGE_TIMEOUT_SEC: u64 = 5;
 
+fn styles() -> Styles {
+    Styles::styled()
+        .header(AnsiColor::Green.on_default().bold())
+        .usage(AnsiColor::Yellow.on_default())
+        .literal(AnsiColor::Cyan.on_default().bold())
+        .placeholder(AnsiColor::Cyan.on_default())
+        .error(AnsiColor::Red.on_default().bold())
+        .valid(AnsiColor::Green.on_default())
+        .invalid(AnsiColor::Red.on_default())
+}
+
 /// Convert web pages to a PDF document
 #[derive(Parser, Debug)]
-#[command(version, about, long_about = None)]
+#[command(version, about, styles = styles())]
 struct Args {
     /// Source URL address
     url: String,
