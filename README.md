@@ -49,14 +49,26 @@ cargo install --git https://github.com/sumbad/web2pdf.git web2pdf
 ### Basic syntax
 
 ```bash
-web2pdf <URL> <output.pdf>
+web2pdf [--debug] <URL> [OUTPUT]
 ```
+
+### Options
+
+- `--debug`, `-d` - Enable debug mode with verbose logging (limits pages to 3 in debug builds)
+- `--help`, `-h` - Display help information
+- `--version`, `-V` - Display version information
 
 ### Examples
 
 ```bash
-# Convert website to PDF
+# Convert website to PDF (output defaults to output.pdf)
+web2pdf https://example.com
+
+# Specify custom output file
 web2pdf https://example.com site.pdf
+
+# Enable debug mode
+web2pdf --debug https://example.com
 ```
 
 ### How it works
@@ -73,9 +85,14 @@ web2pdf https://example.com site.pdf
 
 ```
 src/
-├── main.rs       # Main application logic
-├── browser_utils.rs # Browser utilities
-└── pdf_utils.rs  # PDF manipulation utilities
+├── main.rs           # Main application logic with CLI parsing
+├── browser_utils.rs  # Browser configuration and detection
+├── toc.rs            # Table of Contents generation
+├── _pdf_utils/       # PDF manipulation utilities (merge, sanitize, helpers)
+│   └── merge_pdfs.rs # PDF merging implementation
+├── _adapters/        # Content adapters for different formats
+│   └── _mdbook/      # MdBook documentation format adapter
+└── _adapter_registry/ # Registry system for adapter detection
 js/
 ├── flatten-shadow-dom.js # Shadow DOM handling
 ├── iconify-icon.js      # Iconify icon handling
@@ -110,11 +127,15 @@ cargo clippy -- -D warnings
 
 ### Key dependencies
 
-- `chromiumoxide` - Headless Chrome control
+- `chromiumoxide` - Headless Chrome control via CDP
 - `reqwest` - HTTP client for sitemap fetching
 - `lopdf` - PDF document manipulation
 - `quick-xml` - XML sitemap parsing
 - `tokio` - Async runtime
+- `clap` - Command-line argument parsing with suggestions and colored output
+- `scraper` - HTML parsing
+- `tracing`/`tracing-subscriber` - Structured logging
+- `anyhow` - Error handling
 
 ## Limitations
 

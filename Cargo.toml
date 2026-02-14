@@ -31,6 +31,7 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 url = "2.5.8"
 async-trait = "0.1.89"
+clap = { version = "4.5.58", features = ["derive", "suggestions", "color"] }
 
 # The profile that 'dist' will build with
 [profile.dist]

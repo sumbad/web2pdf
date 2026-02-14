@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Added
+- **CLI improvements**: Migrated from manual argument parsing to `clap` library for better user experience
+- **Debug flag**: Added `--debug` / `-d` flag for verbose tracing output
+- **Optional output**: Made output file argument optional with default value `output.pdf`
+- **Auto-suggestions**: Added intelligent argument suggestions for typos (e.g., `--debhg` → `--debug`)
+- **Colored output**: Added colored terminal output with custom styling (green headers, cyan literals, yellow usage, red errors)
+
+### Changed
+- **CLI syntax**: Updated from `web2pdf <URL> <output.pdf>` to `web2pdf [--debug] <URL> [OUTPUT]`
+- **Logging consistency**: Replaced remaining `eprintln!` statements with `tracing::error!` for structured logging
+
+---
+
 ## [0.3.4] - 2026-02-10
 
 ### Fixed
