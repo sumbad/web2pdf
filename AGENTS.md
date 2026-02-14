@@ -5,7 +5,7 @@
 - **Test single test**: `cargo test -- <test_name>` 
 - **Run test binary**: `cargo run --bin test_merge`
 - **Test all**: `cargo test`
-- **Run**: `cargo run -- [--debug] <URL> <output.pdf>`
+- **Run**: `cargo run -- [--debug] <URL> [OUTPUT]` (output defaults to `output.pdf`)
 - **Lint**: `cargo clippy -- -D warnings` (strict clippy with warnings as errors)
 - **Format**: `cargo fmt`
 - **Check**: `cargo check`
@@ -46,6 +46,15 @@ The project uses an adapter registry system to handle different content types:
 - `quick-xml`: XML parsing
 - `tracing`/`tracing-subscriber`: Structured logging
 - `anyhow`: Error handling
+- `clap`: Command-line argument parsing with features: derive, suggestions, color
+
+### CLI Features
+The project uses `clap` for CLI with enhanced user experience:
+- **Auto-generated help**: `--help` shows formatted usage information
+- **Suggestions**: Automatically suggests correct arguments for typos (e.g., `--debhg` → `--debug`)
+- **Color output**: Styled terminal output with cross-platform support (Windows/Linux/macOS)
+- **Custom styling**: Green headers, cyan literals, yellow usage, red errors
+- **Type-safe parsing**: `Args` struct derives `Parser` for compile-time validation
 
 ## Debug Mode
 Use `--debug` flag to enable verbose tracing output:

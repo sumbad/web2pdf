@@ -48,14 +48,26 @@ cargo install --git https://github.com/sumbad/web2pdf.git web2pdf
 ### Базовый синтаксис
 
 ```bash
-web2pdf <URL> <выходной.pdf>
+web2pdf [--debug] <URL> [ВЫХОДНОЙ_ФАЙЛ]
 ```
+
+### Опции
+
+- `--debug`, `-d` - Включить режим отладки с подробным логированием (в debug сборках ограничивает страницы до 3)
+- `--help`, `-h` - Показать справку
+- `--version`, `-V` - Показать версию
 
 ### Примеры
 
 ```bash
-# Конвертировать веб-сайт в PDF
+# Конвертировать веб-сайт в PDF (по умолчанию output.pdf)
+web2pdf https://example.com
+
+# Указать имя выходного файла
 web2pdf https://example.com site.pdf
+
+# Включить режим отладки
+web2pdf --debug https://example.com
 ```
 
 ### Как это работает
@@ -72,9 +84,14 @@ web2pdf https://example.com site.pdf
 
 ```
 src/
-├── main.rs       # Основная логика приложения
-├── browser_utils.rs # Утилиты для работы с браузером
-└── pdf_utils.rs  # Утилиты для работы с PDF
+├── main.rs           # Основная логика приложения с парсингом CLI
+├── browser_utils.rs  # Конфигурация и поиск браузера
+├── toc.rs            # Генерация оглавления
+├── _pdf_utils/       # Утилиты для работы с PDF (объединение, очистка, помощники)
+│   └── merge_pdfs.rs # Реализация объединения PDF
+├── _adapters/        # Адаптеры для разных форматов контента
+│   └── _mdbook/      # Адаптер для документации MdBook
+└── _adapter_registry/ # Система регистрации адаптеров
 js/
 ├── flatten-shadow-dom.js # Обработка Shadow DOM
 ├── iconify-icon.js      # Обработка иконок Iconify
@@ -109,11 +126,15 @@ cargo clippy -- -D warnings
 
 ### Ключевые зависимости
 
-- `chromiumoxide` - Управление headless Chrome
+- `chromiumoxide` - Управление headless Chrome через CDP
 - `reqwest` - HTTP клиент для получения sitemap
 - `lopdf` - Манипуляция PDF документами
 - `quick-xml` - Парсинг XML sitemap
 - `tokio` - Асинхронная среда выполнения
+- `clap` - Парсинг аргументов командной строки с подсказками и цветным выводом
+- `scraper` - Парсинг HTML
+- `tracing`/`tracing-subscriber` - Структурированное логирование
+- `anyhow` - Обработка ошибок
 
 ## Ограничения
 
