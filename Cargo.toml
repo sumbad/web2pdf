@@ -1,6 +1,6 @@
 [package]
 name = "web2pdf"
-version = "0.4.0"
+version = "0.5.0"
 repository = "https://github.com/sumbad/web2pdf"
 edition = "2024"
 
@@ -11,9 +11,9 @@ path = "src/main.rs"
 [dependencies]
 openssl = { version = "0.10", features = ["vendored"] }
 anyhow = "1.0.100"
-chromiumoxide = "0.8.0"
+chromiumoxide = "0.9.1"
 futures = "0.3.31"
-scraper = "0.25.0"
+scraper = "0.27.0"
 tokio = { version = "1.49.0", features = ["full"] }
 which = "8.0.0"
 reqwest = { version = "0.13", features = [
@@ -24,14 +24,18 @@ reqwest = { version = "0.13", features = [
   "blocking",
   "cookies",
 ] }
-quick-xml = "0.39"
+quick-xml = "0.42"
 tempfile = "3.24.0"
-lopdf = "0.39"
+# `time` feature is disabled: lopdf 0.44.0 ships a `From<time::Time>` impl
+# that never compiles (references nonexistent FormatItem::StringLiteral,
+# lopdf issue #518). We don't use lopdf datetime conversions anyway.
+lopdf = { version = "0.44", default-features = false, features = ["rayon"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 url = "2.5.8"
 async-trait = "0.1.89"
 clap = { version = "4.5.58", features = ["derive", "suggestions", "color"] }
+dirs = "7.0.0"
 
 # The profile that 'dist' will build with
 [profile.dist]

@@ -166,9 +166,9 @@ async fn get_sitemap_url(base_url: &String) -> Result<Vec<String>> {
 
     while let Ok(event) = reader.read_event_into(&mut buf) {
         match event {
-            quick_xml::events::Event::Start(e) if e.name().as_ref() == b"loc" => {
+            quick_xml::events::Event::Start(e) if e.name().as_ref() == "loc" => {
                 if let Ok(quick_xml::events::Event::Text(t)) = reader.read_event_into(&mut buf) {
-                    let url = t.decode()?;
+                    let url = t.xml10_content();
                     links.push(url.into_owned());
                 }
             }

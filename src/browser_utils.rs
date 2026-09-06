@@ -1,10 +1,21 @@
 use anyhow::Result;
-use chromiumoxide::browser::BrowserConfig;
+use chromiumoxide::cdp::js_protocol::runtime::{
+    ConsoleApiCalledType, EnableParams, EventConsoleApiCalled,
+};
+use chromiumoxide::{Page, browser::BrowserConfig};
+use futures::StreamExt;
 use std::path::Path;
 
+use crate::auth::profile_dir;
+
 pub fn build_browser_config(browser_path: &str) -> Result<BrowserConfig, String> {
-    BrowserConfig::builder()
-        .chrome_executable(browser_path)
+    let config_builder = if let Ok(profile) = profile_dir() {
+        BrowserConfig::builder().user_data_dir(&profile)
+    } else {
+        BrowserConfig::builder()
+    };
+
+    config_builder.chrome_executable(browser_path)
         .arg("--disable-web-security")
         .arg("--disable-features=VizDisplayCompositor")
         .arg("--disable-font-subpixel-positioning")
@@ -139,4 +150,46 @@ pub fn find_browser() -> Result<String> {
         Please install Google Chrome or Chromium and ensure it's accessible from PATH or standard installation paths",
         std::env::consts::OS
     )
+}
+
+/// Forward page console output (console.log/warn/error/...) to tracing.
+/// Requires Runtime.enable; events are logged with target `web2pdf::console`.
+pub async fn attach_console_logger(page: &Page) -> Result<()> {
+    page.execute(EnableParams::default()).await?;
+
+    let mut events = page.event_listener::<EventConsoleApiCalled>().await?;
+    tokio::spawn(async move {
+        while let Some(event) = events.next().await {
+            let text = event
+                .args
+                .iter()
+                .map(|arg| match arg.value.as_ref() {
+                    Some(v) => v
+                        .as_str()
+                        .map(String::from)
+                        .unwrap_or_else(|| v.to_string()),
+                    None => arg
+                        .description
+                        .clone()
+                        .unwrap_or_else(|| format!("<{:?}>", arg.r#type)),
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+
+            match event.r#type {
+                ConsoleApiCalledType::Error => {
+                    tracing::error!(target: "web2pdf::console", "{text}")
+                }
+                ConsoleApiCalledType::Warning => {
+                    tracing::warn!(target: "web2pdf::console", "{text}")
+                }
+                ConsoleApiCalledType::Debug => {
+                    tracing::debug!(target: "web2pdf::console", "{text}")
+                }
+                _ => tracing::info!(target: "web2pdf::console", "{text}"),
+            }
+        }
+    });
+
+    Ok(())
 }

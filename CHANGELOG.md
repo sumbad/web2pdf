@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.0] - 2026-09-06
+
+### Added
+- **Auth**: allow to login in a browser and open pages with some profile information
+- **Page console forwarding**: console output from pages is now forwarded to tracing logs
+- **Debug diagnostics**: `--debug` now dumps the source page HTML to `debug_entry.html`
+
+### Fixed
+- **Negative PDF**: print-corrupting overlay elements (e.g. `mix-blend-mode` watermarks) are now removed before PDF generation
+
+### Changed
+- **Robustness**: use the browser profile for the initial HTML fetch
+
+---
+
 ## [0.4.0] - 2026-02-13
 
 ### Added
@@ -56,12 +71,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **TOC filtering**: Changed from `filter().collect()` to `retain()` for better performance and no cloning
 - **Error handling**: Added check for empty TOC after filtering to prevent merge errors
 
+---
 
 ## [0.3.1] - 2026-02-03
 
 ### Fixed
 - **mdBook cleanup**: Reduced aggressiveness of page cleanup for mdBook to preserve a content structure
 
+---
 
 ## [0.3.0] - 2026-02-02
 

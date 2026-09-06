@@ -13,7 +13,8 @@ use _pdf_utils::merge_pdfs::merge_pdfs;
 
 mod browser_utils;
 use crate::_adapter_registry::traits::ResourceAdapter;
-use crate::browser_utils::{build_browser_config, find_browser};
+use crate::auth::login;
+use crate::browser_utils::{attach_console_logger, build_browser_config, find_browser};
 use crate::toc::TocNode;
 
 mod toc;
@@ -22,7 +23,10 @@ mod _adapter_registry;
 use _adapter_registry::registry::AdapterRegistry;
 
 mod _adapters;
+use _adapters::_corp_blog::adapter::CorpBlogAdapter;
 use _adapters::_mdbook::adapter::MdBookAdapter;
+
+mod auth;
 
 // JavaScript scripts
 const PAGE_WAIT_JS: &str = include_str!("../js/page-wait.js");
@@ -43,9 +47,13 @@ fn styles() -> Styles {
 }
 
 /// Convert web pages to a PDF document
-#[derive(Parser, Debug)]
+#[derive(Parser)]
 #[command(version, about, styles = styles())]
 struct Args {
+    /// Open browser and create a profile
+    #[arg(short = 'l', long = "login")]
+    login: bool,
+
     /// Source URL address
     url: String,
 
@@ -62,12 +70,7 @@ struct Args {
 async fn main() -> Result<()> {
     let args = Args::parse();
 
-    let url = &args.url;
-    let output = &args.output;
     let debug_mode = args.debug;
-
-    let browser_path = find_browser().context("Browser not found!")?;
-    println!("Use browser: {}", browser_path);
 
     use tracing_subscriber::EnvFilter;
 
@@ -87,6 +90,24 @@ async fn main() -> Result<()> {
             .init();
     }
 
+    let browser_path = find_browser().context("Browser not found!")?;
+    println!("Use browser: {}", browser_path);
+
+    if args.login {
+        login(&browser_path, &args.url).await?;
+    }
+
+    convert(&browser_path, &args.url, &args.output, args.debug).await?;
+
+    Ok(())
+}
+
+async fn convert(
+    browser_path: &String,
+    url: &String,
+    output: &String,
+    debug_mode: bool,
+) -> Result<()> {
     let mut toc = toc::generate_toc(url).await?;
 
     // Limit in debug dev mode
@@ -99,7 +120,7 @@ async fn main() -> Result<()> {
 
     // 🧭 1. Start browser
     tracing::debug!("Configuring browser with path: {}", browser_path);
-    let config = build_browser_config(&browser_path).map_err(|e| anyhow::anyhow!(e))?;
+    let config = build_browser_config(browser_path).map_err(|e| anyhow::anyhow!(e))?;
     tracing::debug!("Browser configuration created");
 
     tracing::debug!("Launching browser...");
@@ -126,12 +147,22 @@ async fn main() -> Result<()> {
     });
 
     tracing::debug!("Fetching HTML from URL: {}", url);
-    let html = reqwest::get(url).await?.text().await?;
+    let page = browser.new_page(url).await?;
+    attach_console_logger(&page).await?;
+    let html = page.wait_for_navigation().await?.content().await?;
     tracing::debug!("HTML fetched, length: {} bytes", html.len());
+
+    if debug_mode {
+        match std::fs::write("debug_entry.html", &html) {
+            Ok(()) => println!("🐛 Entry HTML dumped to debug_entry.html"),
+            Err(e) => tracing::warn!("Failed to dump entry HTML: {}", e),
+        }
+    }
 
     tracing::info!("Register adapters");
     let mut registry = AdapterRegistry::new();
     registry.register::<MdBookAdapter>();
+    registry.register::<CorpBlogAdapter>();
     let adapter = registry.detect(&html, &browser, url).await;
     tracing::info!("Detected adapter {:?}", adapter);
 
@@ -179,6 +210,7 @@ async fn process_page(
     println!("  🌐 Creating new page...");
 
     let page = browser.new_page("about:blank").await?;
+    attach_console_logger(&page).await?;
     tracing::debug!("Page created");
 
     adapter.before_page(&page).await?;

@@ -1,4 +1,4 @@
-use lopdf::{dictionary, Bookmark, Dictionary, Document, Object, ObjectId};
+use lopdf::{Bookmark, Dictionary, Document, Object, ObjectId, dictionary};
 use std::{
     collections::{BTreeMap, HashMap},
     path::Path,
