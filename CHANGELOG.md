@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **WAF bypass**: browser-like HTTP headers (e.g. `Accept-Language`) are now sent with every page request via CDP to help bypass CloudFront WAF and other bot detection
+- **Unit tests**: first test suite (13 tests) covering PDF merging, PDF structure sanitization (NonStruct dissolving, MCR wrapping, OBJR removal), mdBook TOC parsing, chapter number extraction and mdBook detection
 
 ### Fixed
 - **Entry page headers**: extra HTTP headers are set before the initial navigation, so they apply to the document request itself

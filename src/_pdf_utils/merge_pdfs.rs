@@ -491,3 +491,120 @@ fn assemble_merged_document(
 
     Ok(document)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::_pdf_utils::test_support::build_minimal_pdf;
+
+    /// `Document::load` does not fill `Document::bookmarks`; outline entries
+    /// must be read from the saved Outlines chain in the catalog instead.
+    fn count_outline_items(doc: &Document, catalog: &Dictionary) -> anyhow::Result<usize> {
+        let outlines_ref = catalog.get(b"Outlines")?.as_reference()?;
+        let outlines = doc.get_object(outlines_ref)?.as_dict()?;
+        let mut count = 0;
+        let mut current = outlines
+            .get(b"First")
+            .ok()
+            .and_then(|o| o.as_reference().ok());
+        while let Some(id) = current {
+            count += 1;
+            let item = doc.get_object(id)?.as_dict()?;
+            current = item.get(b"Next").ok().and_then(|o| o.as_reference().ok());
+        }
+        Ok(count)
+    }
+
+    #[test]
+    fn merges_pages_bookmarks_and_structure() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let tagged_path = dir.path().join("tagged.pdf");
+        let untagged_path = dir.path().join("untagged.pdf");
+        build_minimal_pdf(1, true).save(&tagged_path)?;
+        build_minimal_pdf(2, false).save(&untagged_path)?;
+
+        let toc = vec![
+            TocNode {
+                file_path: Some(tagged_path),
+                title: Some("Tagged".into()),
+                href: "https://example.com/tagged".into(),
+                level: 0,
+            },
+            TocNode {
+                file_path: Some(untagged_path),
+                title: Some("Untagged".into()),
+                href: "https://example.com/untagged".into(),
+                level: 0,
+            },
+        ];
+        let out_path = dir.path().join("merged.pdf");
+        merge_pdfs(toc, &out_path)?;
+
+        let merged = Document::load(&out_path)?;
+        assert_eq!(merged.get_pages().len(), 3, "all pages must be merged");
+
+        let catalog = merged.catalog()?;
+
+        assert_eq!(
+            count_outline_items(&merged, catalog)?,
+            2,
+            "one top-level bookmark per source document"
+        );
+
+        // Tagged doc contributed 1 Num entry (next key 1), untagged shifted by 2 pages
+        let struct_root_ref = catalog.get(b"StructTreeRoot")?.as_reference()?;
+        let struct_root = merged.get_object(struct_root_ref)?.as_dict()?;
+        assert_eq!(
+            struct_root.get(b"ParentTreeNextKey")?.as_i64()?,
+            3,
+            "structure offsets of both documents must be accumulated"
+        );
+
+        let mark_info = catalog.get(b"MarkInfo")?.as_dict()?;
+        assert!(mark_info.get(b"Marked")?.as_bool()?);
+
+        let pages_ref = catalog.get(b"Pages")?.as_reference()?;
+        let pages_root = merged.get_object(pages_ref)?.as_dict()?;
+        assert_eq!(pages_root.get(b"Count")?.as_i64()?, 3);
+        assert!(
+            pages_root.get(b"Parent").is_err(),
+            "pages root must not have a parent"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn skips_toc_entries_without_file() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let pdf_path = dir.path().join("single.pdf");
+        build_minimal_pdf(2, false).save(&pdf_path)?;
+
+        let toc = vec![
+            TocNode {
+                file_path: None,
+                title: None,
+                href: "https://example.com/entry".into(),
+                level: 0,
+            },
+            TocNode {
+                file_path: Some(pdf_path),
+                title: Some("Real".into()),
+                href: "https://example.com/real".into(),
+                level: 0,
+            },
+        ];
+        let out_path = dir.path().join("merged.pdf");
+        merge_pdfs(toc, &out_path)?;
+
+        let merged = Document::load(&out_path)?;
+        assert_eq!(merged.get_pages().len(), 2);
+        assert_eq!(
+            count_outline_items(&merged, merged.catalog()?)?,
+            1,
+            "only entries with a file produce a bookmark"
+        );
+
+        Ok(())
+    }
+}

@@ -63,3 +63,35 @@ impl ResourceDetector for MdBookDetector {
         score >= 5
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detects_by_generator_meta() {
+        let html = r#"<html><head><meta name="generator" content="mdBook 0.4.40"></head><body></body></html>"#;
+        assert!(MdBookDetector.detect_fast(html));
+    }
+
+    #[test]
+    fn detects_by_heuristic_score() {
+        // ul.chapter(2) + li.chapter-item(2) + #content(1) + book.js(3) = 8 >= 5
+        let html = r#"
+        <html><body>
+        <ul class="chapter"><li class="chapter-item"><a href="a.html">A</a></li></ul>
+        <main id="content"></main>
+        <script src="book.js"></script>
+        </body></html>"#;
+        assert!(MdBookDetector.detect_fast(html));
+    }
+
+    #[test]
+    fn rejects_unrelated_page() {
+        let html = r#"<html><body><article>Just a blog post</article></body></html>"#;
+        assert!(!MdBookDetector.detect_fast(html));
+        // A single weak signal stays below the threshold
+        let weak = r#"<html><body><ul class="chapter"></ul></body></html>"#;
+        assert!(!MdBookDetector.detect_fast(weak));
+    }
+}

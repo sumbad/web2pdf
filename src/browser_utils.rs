@@ -224,3 +224,14 @@ pub async fn set_extra_headers(page: &Page) -> Result<()> {
     tracing::debug!("Extra HTTP headers set for page");
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn browser_config_builds_regardless_of_profile() {
+        // Must not require a real executable on disk
+        assert!(build_browser_config("/nonexistent/browser").is_ok());
+    }
+}

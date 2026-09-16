@@ -220,3 +220,72 @@ pub fn extract_chapter_number(url: &str) -> u32 {
     }
     0
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extracts_chapter_number_from_last_segment() {
+        assert_eq!(
+            extract_chapter_number("https://example.com/book/chapter-01.html"),
+            1
+        );
+        assert_eq!(
+            extract_chapter_number("https://example.com/book/page-12.html"),
+            12
+        );
+        assert_eq!(extract_chapter_number("https://example.com/2.html"), 2);
+    }
+
+    #[test]
+    fn returns_zero_without_number_in_last_segment() {
+        assert_eq!(extract_chapter_number("https://example.com/index.html"), 0);
+        assert_eq!(
+            extract_chapter_number("https://example.com/book/chapter-1/index.html"),
+            0
+        );
+        // "2-3" is not a valid number
+        assert_eq!(extract_chapter_number("https://example.com/ch-2-3.html"), 0);
+        assert_eq!(extract_chapter_number("https://example.com/"), 0);
+    }
+
+    #[test]
+    fn parses_mdbook_sidebar_into_hierarchy() -> anyhow::Result<()> {
+        let html = r#"
+        <html><body>
+        <nav id="sidebar">
+          <ol class="chapter">
+            <li><a href="intro.html">Introduction</a></li>
+            <li><a href="ch1.html">Chapter 1</a>
+              <ol>
+                <li><a href="sec-1-1.html">Section 1.1</a></li>
+                <li><a href="sec-1-2.html">Section 1.2</a></li>
+              </ol>
+            </li>
+          </ol>
+        </nav>
+        </body></html>"#;
+
+        let base = Url::parse("https://example.com/book/")?;
+        let nodes = parse_mdbook_toc(html, &base)?;
+
+        assert_eq!(nodes.len(), 3);
+        assert_eq!(nodes[0].title.as_deref(), Some("Introduction"));
+        assert_eq!(nodes[0].href, "https://example.com/book/intro.html");
+        assert_eq!(nodes[0].level, 0);
+        // Parent items with sub-lists are replaced by their children
+        assert_eq!(nodes[1].title.as_deref(), Some("Section 1.1"));
+        assert_eq!(nodes[1].level, 1);
+        assert_eq!(nodes[2].href, "https://example.com/book/sec-1-2.html");
+
+        Ok(())
+    }
+
+    #[test]
+    fn missing_sidebar_is_an_error() {
+        let base = Url::parse("https://example.com/").unwrap();
+        let result = parse_mdbook_toc("<html><body></body></html>", &base);
+        assert!(result.is_err());
+    }
+}
