@@ -3,7 +3,6 @@
 ## Build/Test Commands
 - **Build**: `cargo build` (add `--release` for optimized builds)
 - **Test single test**: `cargo test -- <test_name>` 
-- **Run test binary**: `cargo run --bin test_merge`
 - **Test all**: `cargo test`
 - **Run**: `cargo run -- [--debug] <URL> [OUTPUT]` (output defaults to `output.pdf`)
 - **Lint**: `cargo clippy -- -D warnings` (strict clippy with warnings as errors)

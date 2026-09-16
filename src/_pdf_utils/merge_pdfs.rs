@@ -19,6 +19,29 @@ pub struct DocStructureData {
     pub next_offset_increment: i64,
 }
 
+/// Structure tree data accumulated across all merged documents
+struct MergedStructure {
+    /// Children (K) of the unified root structure node
+    kids: Vec<Object>,
+    /// ParentTree elements (key-value pairs for the Nums array)
+    nums: Vec<Object>,
+    /// RoleMap entries merged from all documents
+    role_map: Dictionary,
+    /// StructParent offset reached so far
+    offset: i64,
+}
+
+impl Default for MergedStructure {
+    fn default() -> Self {
+        Self {
+            kids: Vec::new(),
+            nums: Vec::new(),
+            role_map: Dictionary::new(),
+            offset: 0,
+        }
+    }
+}
+
 pub fn merge_pdfs<P>(toc: Vec<TocNode>, output: P) -> lopdf::Result<()>
 where
     P: AsRef<Path>,
@@ -40,10 +63,7 @@ where
 
     let mut previous_lever_bookmark: HashMap<u8, Option<u32>> = HashMap::new();
 
-    let mut global_nums = Vec::new();
-    let mut global_kids = Vec::new();
-    let mut global_role_map = Dictionary::new();
-    let mut current_offset = 0i64;
+    let mut structure = MergedStructure::default();
 
     for node in toc_iter {
         let file_path = if let Some(path) = node.file_path.as_ref() {
@@ -85,28 +105,24 @@ where
         // 📌 Step 1.3: Extract StructTreeRoot data
         // Find the structure root in the current document
         let mut struct_found = false;
-        if let Ok(catalog) = doc.catalog() {
-            if let Ok(struct_root_res) = catalog.get(b"StructTreeRoot") {
-                // Save a reference to this document's StructTreeRoot for stages 2-4
-                if let Ok(id) = struct_root_res.as_reference() {
-                    if let Ok(dict) = doc.get_object(id).and_then(|o| o.as_dict()) {
-                        // Clone the dictionary since doc will be consumed or destroyed
-                        source_struct_roots.push(dict.clone());
+        if let Ok(catalog) = doc.catalog()
+            && let Ok(struct_root_res) = catalog.get(b"StructTreeRoot")
+        {
+            // Save a reference to this document's StructTreeRoot for stages 2-4
+            if let Ok(id) = struct_root_res.as_reference()
+                && let Ok(dict) = doc.get_object(id).and_then(|o| o.as_dict())
+            {
+                // Clone the dictionary since doc will be consumed or destroyed
+                source_struct_roots.push(dict.clone());
 
-                        struct_found = true;
+                struct_found = true;
 
-                        // Log the keys present in the structure (K, ParentTree, RoleMap, etc.)
-                        let keys: Vec<String> = dict
-                            .iter()
-                            .map(|(k, _)| String::from_utf8_lossy(k).into_owned())
-                            .collect();
-                        tracing::debug!(
-                            "Found StructTreeRoot (ID: {:?}) with keys: {:?}",
-                            id,
-                            keys
-                        );
-                    }
-                }
+                // Log the keys present in the structure (K, ParentTree, RoleMap, etc.)
+                let keys: Vec<String> = dict
+                    .iter()
+                    .map(|(k, _)| String::from_utf8_lossy(k).into_owned())
+                    .collect();
+                tracing::debug!("Found StructTreeRoot (ID: {:?}) with keys: {:?}", id, keys);
             }
         }
 
@@ -118,28 +134,28 @@ where
         }
 
         // --- Call structure processing function ---
-        let struct_data = extract_and_shift_structure(&mut doc, current_offset);
+        let struct_data = extract_and_shift_structure(&mut doc, structure.offset);
 
         // 1. Collect Nums (ParentTree)
-        global_nums.extend(struct_data.shifted_nums);
+        structure.nums.extend(struct_data.shifted_nums);
 
         // 2. Collect children (K) - now just extend, without if let Some
-        global_kids.extend(struct_data.root_kids);
+        structure.kids.extend(struct_data.root_kids);
 
         // 3. Collect RoleMap
         if let Some(rm) = struct_data.role_map {
             for (k, v) in rm {
-                global_role_map.set(k.clone(), v.clone());
+                structure.role_map.set(k.clone(), v.clone());
             }
         }
 
         // 4. Update global offset for the next file
-        current_offset += struct_data.next_offset_increment;
+        structure.offset += struct_data.next_offset_increment;
 
         tracing::debug!(
             "Processed structure for '{}': Shifted {} Nums, incremented offset by {}",
             title,
-            global_nums.len() / 2,
+            structure.nums.len() / 2,
             struct_data.next_offset_increment
         );
 
@@ -228,16 +244,8 @@ where
 
     // --- STAGE 5: Final assembly ---
     // Now assemble_merged_document will get IDs starting from max_id + 1 (i.e., from 370+)
-    let mut document = assemble_merged_document(
-        document,
-        catalog_id,
-        pages_id,
-        documents_pages,
-        global_kids,
-        global_nums,
-        global_role_map,
-        current_offset,
-    )?;
+    let mut document =
+        assemble_merged_document(document, catalog_id, pages_id, documents_pages, structure)?;
 
     // --- FINALIZATION ---
     document.trailer = dictionary! {
@@ -256,12 +264,11 @@ where
     // Don't use auto adjusting due to we have a custom merge algorithm
     // document.adjust_zero_pages();
 
-    if !document.bookmarks.is_empty() {
-        if let Some(outline_id) = document.build_outline() {
-            if let Ok(Object::Dictionary(dict)) = document.get_object_mut(catalog_id) {
-                dict.set("Outlines", Object::Reference(outline_id));
-            }
-        }
+    if !document.bookmarks.is_empty()
+        && let Some(outline_id) = document.build_outline()
+        && let Ok(Object::Dictionary(dict)) = document.get_object_mut(catalog_id)
+    {
+        dict.set("Outlines", Object::Reference(outline_id));
     }
 
     // ⚠️ HIGHLY RECOMMENDED: renumber all objects at the very end for "clean" xref table
@@ -286,86 +293,81 @@ fn extract_and_shift_structure(doc: &mut Document, current_offset: i64) -> DocSt
     let mut local_next_key = 0i64;
 
     // Try to get StructTreeRoot by Catalog
-    if let Ok(catalog) = doc.catalog() {
-        if let Ok(str_root_ref) = catalog
+    if let Ok(catalog) = doc.catalog()
+        && let Ok(str_root_ref) = catalog
             .get(b"StructTreeRoot")
             .and_then(|o| o.as_reference())
+        && let Ok(str_root) = doc.get_object(str_root_ref).and_then(|o| o.as_dict())
+    {
+        // --- A. Get ParentTreeNextKey to calculate future offset ---
+        local_next_key = str_root
+            .get(b"ParentTreeNextKey")
+            .and_then(|o| o.as_i64())
+            .unwrap_or(0);
+
+        // --- B. Shift keys in ParentTree (Nums) ---
+        if let Ok(pt_ref) = str_root.get(b"ParentTree").and_then(|o| o.as_reference())
+            && let Ok(pt_dict) = doc.get_object(pt_ref).and_then(|o| o.as_dict())
+            && let Ok(nums) = pt_dict.get(b"Nums").and_then(|o| o.as_array())
         {
-            if let Ok(str_root) = doc.get_object(str_root_ref).and_then(|o| o.as_dict()) {
-                // --- A. Get ParentTreeNextKey to calculate future offset ---
-                local_next_key = str_root
-                    .get(b"ParentTreeNextKey")
-                    .and_then(|o| o.as_i64())
-                    .unwrap_or(0);
-
-                // --- B. Shift keys in ParentTree (Nums) ---
-                if let Ok(pt_ref) = str_root.get(b"ParentTree").and_then(|o| o.as_reference()) {
-                    if let Ok(pt_dict) = doc.get_object(pt_ref).and_then(|o| o.as_dict()) {
-                        if let Ok(nums) = pt_dict.get(b"Nums").and_then(|o| o.as_array()) {
-                            for i in (0..nums.len()).step_by(2) {
-                                if let (Some(Object::Integer(k)), Some(val)) =
-                                    (nums.get(i), nums.get(i + 1))
-                                {
-                                    let new_key = k + current_offset;
-                                    shifted_nums.push(Object::Integer(new_key));
-                                    shifted_nums.push(val.clone());
-                                }
-                            }
-                        }
-                    }
+            for i in (0..nums.len()).step_by(2) {
+                if let (Some(Object::Integer(k)), Some(val)) = (nums.get(i), nums.get(i + 1)) {
+                    let new_key = k + current_offset;
+                    shifted_nums.push(Object::Integer(new_key));
+                    shifted_nums.push(val.clone());
                 }
-
-                // --- C. Extract and flatten structure children (K) ---
-                if let Ok(k_obj) = str_root.get(b"K") {
-                    match k_obj {
-                        Object::Array(arr) => {
-                            root_kids.extend(arr.iter().cloned());
-                        }
-                        Object::Reference(id) => {
-                            // Check: is this object a "Document" type node
-                            let is_doc_node = doc
-                                .get_object(*id)
-                                .ok()
-                                .and_then(|o| o.as_dict().ok())
-                                .and_then(|d| d.get(b"S").ok())
-                                .and_then(|s| s.as_name().ok())
-                                == Some(b"Document");
-
-                            if is_doc_node {
-                                // If it's a Document, take its children (/K) directly
-                                if let Ok(inner_k) =
-                                    doc.get_object(*id).and_then(|o| o.as_dict()?.get(b"K"))
-                                {
-                                    match inner_k {
-                                        Object::Array(arr) => root_kids.extend(arr.iter().cloned()),
-                                        _ => root_kids.push(inner_k.clone()),
-                                    }
-                                }
-                            } else {
-                                // If it's not a Document (e.g., Div or Part), just add the reference
-                                root_kids.push(k_obj.clone());
-                            }
-                        }
-                        _ => root_kids.push(k_obj.clone()),
-                    }
-                }
-
-                // --- D. Extract RoleMap ---
-                role_map = str_root
-                    .get(b"RoleMap")
-                    .ok()
-                    .and_then(|o| o.as_dict().ok())
-                    .map(|d| d.clone());
             }
         }
+
+        // --- C. Extract and flatten structure children (K) ---
+        if let Ok(k_obj) = str_root.get(b"K") {
+            match k_obj {
+                Object::Array(arr) => {
+                    root_kids.extend(arr.iter().cloned());
+                }
+                Object::Reference(id) => {
+                    // Check: is this object a "Document" type node
+                    let is_doc_node = doc
+                        .get_object(*id)
+                        .ok()
+                        .and_then(|o| o.as_dict().ok())
+                        .and_then(|d| d.get(b"S").ok())
+                        .and_then(|s| s.as_name().ok())
+                        == Some(b"Document");
+
+                    if is_doc_node {
+                        // If it's a Document, take its children (/K) directly
+                        if let Ok(inner_k) =
+                            doc.get_object(*id).and_then(|o| o.as_dict()?.get(b"K"))
+                        {
+                            match inner_k {
+                                Object::Array(arr) => root_kids.extend(arr.iter().cloned()),
+                                _ => root_kids.push(inner_k.clone()),
+                            }
+                        }
+                    } else {
+                        // If it's not a Document (e.g., Div or Part), just add the reference
+                        root_kids.push(k_obj.clone());
+                    }
+                }
+                _ => root_kids.push(k_obj.clone()),
+            }
+        }
+
+        // --- D. Extract RoleMap ---
+        role_map = str_root
+            .get(b"RoleMap")
+            .ok()
+            .and_then(|o| o.as_dict().ok())
+            .cloned();
     }
 
     // --- E. Shift StructParents on pages (most important for linking) ---
     for (_page_num, page_id) in doc.get_pages() {
-        if let Ok(page_dict) = doc.get_object_mut(page_id).and_then(|o| o.as_dict_mut()) {
-            if let Ok(old_sp) = page_dict.get(b"StructParents").and_then(|o| o.as_i64()) {
-                page_dict.set("StructParents", old_sp + current_offset);
-            }
+        if let Ok(page_dict) = doc.get_object_mut(page_id).and_then(|o| o.as_dict_mut())
+            && let Ok(old_sp) = page_dict.get(b"StructParents").and_then(|o| o.as_i64())
+        {
+            page_dict.set("StructParents", old_sp + current_offset);
         }
     }
 
@@ -387,10 +389,7 @@ fn assemble_merged_document(
     catalog_id: ObjectId,
     pages_id: ObjectId,
     documents_pages: BTreeMap<ObjectId, Object>,
-    global_kids: Vec<Object>,
-    global_nums: Vec<Object>,
-    global_role_map: Dictionary,
-    final_offset: i64,
+    structure: MergedStructure,
 ) -> lopdf::Result<Document> {
     tracing::info!("--- Stage 4: Assembling final document structure ---");
 
@@ -410,34 +409,34 @@ fn assemble_merged_document(
 
     // 2. Create a unified ParentTree object (Nums)
     let parent_tree_id = document.add_object(dictionary! {
-        "Nums" => global_nums.clone(),
+        "Nums" => structure.nums.clone(),
     });
     tracing::debug!(
         "Created ParentTree (ID: {:?}) with {} entries",
         parent_tree_id,
-        global_nums.len() / 2
+        structure.nums.len() / 2
     );
 
     // 3. Create a unified root structure node (Document)
     let root_document_node_id = document.add_object(dictionary! {
         "Type" => "StructElem",
         "S" => "Document",
-        "K" => global_kids.clone(),
+        "K" => structure.kids.clone(),
     });
     tracing::debug!(
         "Created root StructElem 'Document' (ID: {:?}) with {} top-level kids",
         root_document_node_id,
-        global_kids.len()
+        structure.kids.len()
     );
 
     // 4. PARENT WIRING (/P): This is the "holy grail" of tag visibility in PDFix
     let mut reparented_count = 0;
-    for child_ref in &global_kids {
-        if let Ok(child_id) = child_ref.as_reference() {
-            if let Ok(Object::Dictionary(dict)) = document.get_object_mut(child_id) {
-                dict.set("P", root_document_node_id);
-                reparented_count += 1;
-            }
+    for child_ref in &structure.kids {
+        if let Ok(child_id) = child_ref.as_reference()
+            && let Ok(Object::Dictionary(dict)) = document.get_object_mut(child_id)
+        {
+            dict.set("P", root_document_node_id);
+            reparented_count += 1;
         }
     }
     tracing::debug!(
@@ -450,8 +449,8 @@ fn assemble_merged_document(
         "Type" => "StructTreeRoot",
         "K" => root_document_node_id,
         "ParentTree" => parent_tree_id,
-        "ParentTreeNextKey" => final_offset as i32,
-        "RoleMap" => global_role_map,
+        "ParentTreeNextKey" => structure.offset as i32,
+        "RoleMap" => structure.role_map,
     });
     tracing::info!(
         "Final StructTreeRoot created (ID: {:?})",

@@ -12,10 +12,10 @@ impl ResourceDetector for MdBookDetector {
 
         let meta = Selector::parse(r#"meta[name="generator"]"#).unwrap();
 
-        if let Some(el) = doc.select(&meta).next() {
-            if let Some(c) = el.value().attr("content") {
-                return c.to_lowercase().contains("mdbook");
-            }
+        if let Some(el) = doc.select(&meta).next()
+            && let Some(c) = el.value().attr("content")
+        {
+            return c.to_lowercase().contains("mdbook");
         }
 
         let mut score = 0;

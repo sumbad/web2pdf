@@ -14,7 +14,9 @@ use _pdf_utils::merge_pdfs::merge_pdfs;
 mod browser_utils;
 use crate::_adapter_registry::traits::ResourceAdapter;
 use crate::auth::login;
-use crate::browser_utils::{attach_console_logger, build_browser_config, find_browser, set_extra_headers};
+use crate::browser_utils::{
+    attach_console_logger, build_browser_config, find_browser, set_extra_headers,
+};
 use crate::toc::TocNode;
 
 mod toc;

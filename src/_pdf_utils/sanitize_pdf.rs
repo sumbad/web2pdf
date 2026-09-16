@@ -50,60 +50,59 @@ fn dissolve_nonstruct_in_node(doc: &mut Document, parent_id: ObjectId) -> anyhow
     let mut was_changed = false;
 
     for (i, kid) in kids.iter().enumerate() {
-        if let Some(kid_id) = kid.as_reference().ok() {
-            if node_is_nonstruct(doc, kid_id) {
-                let kid_dict = doc.get_object(kid_id)?.as_dict()?.clone();
-                let kid_pg = kid_dict.get(b"Pg").ok().cloned();
+        if let Ok(kid_id) = kid.as_reference()
+            && node_is_nonstruct(doc, kid_id)
+        {
+            let kid_dict = doc.get_object(kid_id)?.as_dict()?.clone();
+            let kid_pg = kid_dict.get(b"Pg").ok().cloned();
 
-                tracing::debug!(
-                    "🔍 Dissolving NonStruct {:?} (child #{} of {} {:?})",
-                    kid_id,
-                    i,
-                    role_str,
-                    parent_id
-                );
+            tracing::debug!(
+                "🔍 Dissolving NonStruct {:?} (child #{} of {} {:?})",
+                kid_id,
+                i,
+                role_str,
+                parent_id
+            );
 
-                let grandchildren = match kid_dict.get(b"K") {
-                    Ok(Object::Array(arr)) => arr.clone(),
-                    Ok(obj) => vec![obj.clone()],
-                    _ => vec![],
-                };
+            let grandchildren = match kid_dict.get(b"K") {
+                Ok(Object::Array(arr)) => arr.clone(),
+                Ok(obj) => vec![obj.clone()],
+                _ => vec![],
+            };
 
-                for gc in grandchildren {
-                    match gc {
-                        Object::Integer(mcid) => {
-                            // If we extract a bare MCID, wrap it in an MCR dictionary,
-                            // so we don't lose the page binding (Pg)
-                            if let Some(pg) = &kid_pg {
-                                let mut mcr = Dictionary::new();
-                                mcr.set("Type", Object::Name(b"MCR".to_vec()));
-                                mcr.set("Pg", pg.clone());
-                                mcr.set("MCID", Object::Integer(mcid));
-                                new_kids.push(Object::Dictionary(mcr));
-                            } else {
-                                new_kids.push(Object::Integer(mcid));
-                            }
+            for gc in grandchildren {
+                match gc {
+                    Object::Integer(mcid) => {
+                        // If we extract a bare MCID, wrap it in an MCR dictionary,
+                        // so we don't lose the page binding (Pg)
+                        if let Some(pg) = &kid_pg {
+                            let mut mcr = Dictionary::new();
+                            mcr.set("Type", Object::Name(b"MCR".to_vec()));
+                            mcr.set("Pg", pg.clone());
+                            mcr.set("MCID", Object::Integer(mcid));
+                            new_kids.push(Object::Dictionary(mcr));
+                        } else {
+                            new_kids.push(Object::Integer(mcid));
                         }
-                        Object::Reference(gc_id) => {
-                            // If we extract a tag (P, Link, etc.), update its parent
-                            set_parent_link(doc, gc_id, parent_id);
-
-                            // If the tag doesn't have its own page, but NonStruct had one - pass it to the tag
-                            if let Ok(Object::Dictionary(gc_dict)) = doc.get_object_mut(gc_id) {
-                                if !gc_dict.has(b"Pg") {
-                                    if let Some(pg) = &kid_pg {
-                                        gc_dict.set("Pg", pg.clone());
-                                    }
-                                }
-                            }
-                            new_kids.push(Object::Reference(gc_id));
-                        }
-                        _ => new_kids.push(gc),
                     }
+                    Object::Reference(gc_id) => {
+                        // If we extract a tag (P, Link, etc.), update its parent
+                        set_parent_link(doc, gc_id, parent_id);
+
+                        // If the tag doesn't have its own page, but NonStruct had one - pass it to the tag
+                        if let Ok(Object::Dictionary(gc_dict)) = doc.get_object_mut(gc_id)
+                            && !gc_dict.has(b"Pg")
+                            && let Some(pg) = &kid_pg
+                        {
+                            gc_dict.set("Pg", pg.clone());
+                        }
+                        new_kids.push(Object::Reference(gc_id));
+                    }
+                    _ => new_kids.push(gc),
                 }
-                was_changed = true;
-                continue;
             }
+            was_changed = true;
+            continue;
         }
         new_kids.push(kid.clone());
     }

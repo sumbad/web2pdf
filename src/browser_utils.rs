@@ -1,5 +1,7 @@
 use anyhow::Result;
-use chromiumoxide::cdp::browser_protocol::network::{EnableParams as NetworkEnableParams, Headers, SetExtraHttpHeadersParams};
+use chromiumoxide::cdp::browser_protocol::network::{
+    EnableParams as NetworkEnableParams, Headers, SetExtraHttpHeadersParams,
+};
 use chromiumoxide::cdp::js_protocol::runtime::{
     ConsoleApiCalledType, EnableParams, EventConsoleApiCalled,
 };
