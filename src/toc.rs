@@ -1,8 +1,19 @@
 use std::path::PathBuf;
+use std::sync::LazyLock;
 
 use anyhow::{Context, Result};
+use reqwest::Client;
 use scraper::{ElementRef, Html, Selector};
 use url::Url;
+
+use crate::browser_utils::USER_AGENT;
+
+static HTTP_CLIENT: LazyLock<Client> = LazyLock::new(|| {
+    Client::builder()
+        .user_agent(USER_AGENT)
+        .build()
+        .expect("reqwest client should build")
+});
 
 #[derive(Debug, Clone)]
 pub struct TocNode {
@@ -18,27 +29,33 @@ pub struct TocNode {
 /// Generate Table of contents by some URL
 /// It will find a sitemap if it is or parse a navbar, sidebar, etc.
 ///
-pub async fn generate_toc(url: &String) -> Result<Vec<TocNode>> {
+pub async fn generate_toc(url: &String) -> Vec<TocNode> {
     // Try to use sitemap for TOC
-    if let Some(t) = toc_from_sitemap(url).await? {
-        return Ok(t);
+    if let Some(t) = toc_from_sitemap(url).await.unwrap_or_else(|e| {
+        tracing::debug!("TOC from sitemap failed, trying navbar: {e:#}");
+        None
+    }) {
+        return t;
     }
 
     // Try to use navbar for TOC
-    if let Some(t) = toc_from_navbar(url).await? {
-        return Ok(t);
+    if let Some(t) = toc_from_navbar(url).await.unwrap_or_else(|e| {
+        tracing::debug!("TOC from navbar failed, falling back to entry page: {e:#}");
+        None
+    }) {
+        return t;
     }
 
-    Ok(vec![TocNode {
+    vec![TocNode {
         file_path: None,
         title: None,
         href: url.to_string(),
         level: 0,
-    }])
+    }]
 }
 
 async fn toc_from_navbar(url: &String) -> Result<Option<Vec<TocNode>>> {
-    let html = reqwest::get(url).await?.text().await?;
+    let html = HTTP_CLIENT.get(url).send().await?.text().await?;
 
     let base_url = Url::parse(url)?;
 
@@ -149,11 +166,12 @@ async fn toc_from_sitemap(url: &String) -> Result<Option<Vec<TocNode>>> {
     Ok(Some(nodes))
 }
 
-async fn get_sitemap_url(base_url: &String) -> Result<Vec<String>> {
-    let sitemap_url = format!("{base_url}/sitemap.xml");
+async fn get_sitemap_url(base_url: &str) -> Result<Vec<String>> {
+    let base = base_url.trim_end_matches('/');
+    let sitemap_url = format!("{base}/sitemap.xml");
     tracing::debug!("Fetching sitemap from: {}", sitemap_url);
 
-    let response = reqwest::get(&sitemap_url).await?;
+    let response = HTTP_CLIENT.get(&sitemap_url).send().await?;
     tracing::debug!("Sitemap response status: {}", response.status());
 
     let xml = response.text().await?;

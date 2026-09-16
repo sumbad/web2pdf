@@ -1,4 +1,5 @@
 use anyhow::Result;
+use chromiumoxide::cdp::browser_protocol::network::{EnableParams as NetworkEnableParams, Headers, SetExtraHttpHeadersParams};
 use chromiumoxide::cdp::js_protocol::runtime::{
     ConsoleApiCalledType, EnableParams, EventConsoleApiCalled,
 };
@@ -7,6 +8,14 @@ use futures::StreamExt;
 use std::path::Path;
 
 use crate::auth::profile_dir;
+
+pub(crate) const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+
+/// Neutral headers that real browsers send identically with every request
+/// (documents, subresources, XHR alike). Navigation-specific headers
+/// (Accept, Sec-Fetch-*, Upgrade-Insecure-Requests) Chrome adds itself per
+/// request; overriding them globally would corrupt subresource requests.
+const EXTRA_HEADERS: &[(&str, &str)] = &[("Accept-Language", "en-US,en;q=0.9")];
 
 pub fn build_browser_config(browser_path: &str) -> Result<BrowserConfig, String> {
     let config_builder = if let Ok(profile) = profile_dir() {
@@ -23,7 +32,7 @@ pub fn build_browser_config(browser_path: &str) -> Result<BrowserConfig, String>
         .arg("--force-renderer-accessibility")
         .arg("--no-sandbox")
         .arg("--disable-dev-shm-usage")
-        .arg("--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        .arg(format!("--user-agent={USER_AGENT}"))
         .arg("--disable-blink-features=AutomationControlled")
         .arg("--no-first-run")
         .arg("--no-default-browser-check")
@@ -191,5 +200,25 @@ pub async fn attach_console_logger(page: &Page) -> Result<()> {
         }
     });
 
+    Ok(())
+}
+
+/// Set extra HTTP headers that real browsers send.
+/// This helps bypass CloudFront WAF and other bot detection.
+pub async fn set_extra_headers(page: &Page) -> Result<()> {
+    // Enable network domain
+    page.execute(NetworkEnableParams::default()).await?;
+
+    // Build headers as JSON object
+    let headers_map: serde_json::Map<String, serde_json::Value> = EXTRA_HEADERS
+        .iter()
+        .map(|(k, v)| (k.to_string(), serde_json::Value::String(v.to_string())))
+        .collect();
+    let headers = Headers::new(serde_json::Value::Object(headers_map));
+
+    let params = SetExtraHttpHeadersParams { headers };
+    page.execute(params).await?;
+
+    tracing::debug!("Extra HTTP headers set for page");
     Ok(())
 }

@@ -14,7 +14,7 @@ use _pdf_utils::merge_pdfs::merge_pdfs;
 mod browser_utils;
 use crate::_adapter_registry::traits::ResourceAdapter;
 use crate::auth::login;
-use crate::browser_utils::{attach_console_logger, build_browser_config, find_browser};
+use crate::browser_utils::{attach_console_logger, build_browser_config, find_browser, set_extra_headers};
 use crate::toc::TocNode;
 
 mod toc;
@@ -108,7 +108,7 @@ async fn convert(
     output: &String,
     debug_mode: bool,
 ) -> Result<()> {
-    let mut toc = toc::generate_toc(url).await?;
+    let mut toc = toc::generate_toc(url).await;
 
     // Limit in debug dev mode
     if cfg!(debug_assertions) && debug_mode {
@@ -147,9 +147,13 @@ async fn convert(
     });
 
     tracing::debug!("Fetching HTML from URL: {}", url);
-    let page = browser.new_page(url).await?;
+    // Navigate manually so that extra headers are set before the document
+    // request goes out (new_page(url) would start loading immediately)
+    let page = browser.new_page("about:blank").await?;
     attach_console_logger(&page).await?;
-    let html = page.wait_for_navigation().await?.content().await?;
+    set_extra_headers(&page).await?;
+    page.goto(url).await?;
+    let html = page.content().await?;
     tracing::debug!("HTML fetched, length: {} bytes", html.len());
 
     if debug_mode {
@@ -211,6 +215,7 @@ async fn process_page(
 
     let page = browser.new_page("about:blank").await?;
     attach_console_logger(&page).await?;
+    set_extra_headers(&page).await?;
     tracing::debug!("Page created");
 
     adapter.before_page(&page).await?;

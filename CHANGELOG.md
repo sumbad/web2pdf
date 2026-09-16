@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Added
+- **WAF bypass**: browser-like HTTP headers (e.g. `Accept-Language`) are now sent with every page request via CDP to help bypass CloudFront WAF and other bot detection
+
+### Fixed
+- **Entry page headers**: extra HTTP headers are set before the initial navigation, so they apply to the document request itself
+- **Sitemap URL**: fixed double slash (`//sitemap.xml`) when the source URL ends with `/`
+
+### Changed
+- **User-Agent**: updated to Chrome 131 and shared between the browser and TOC HTTP fetches
+- **TOC resilience**: failed sitemap/navbar fetches no longer abort the run — TOC falls back gracefully and logs the cause in `--debug`
+- **HTTP client**: TOC fetches reuse a single pooled reqwest client instead of building a new one per request
+
+---
+
 ## [0.5.0] - 2026-09-06
 
 ### Added
