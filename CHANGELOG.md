@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
+## [0.5.1] - 2026-09-24
 
 ### Added
 - **Unit tests**: first test suite (13 tests) covering PDF merging, PDF structure sanitization (NonStruct dissolving, MCR wrapping, OBJR removal), mdBook TOC parsing, chapter number extraction and mdBook detection
