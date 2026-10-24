@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
+## [0.6.0] - 2026-10-24
 
 ### Added
 - **GitHub Blog adapter**: new `GHBlogAdapter` for github.blog — detects the site by host + `og:site_name` meta and sanitizes pages before PDF generation (removes site header/footer/aside blocks, normalizes whitespace and inline `<code>`/`<a>` spacing)
