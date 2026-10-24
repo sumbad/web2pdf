@@ -38,30 +38,41 @@ pub async fn generate_toc(url: &String) -> Vec<TocNode> {
         return t;
     }
 
+    let html = match HTTP_CLIENT.get(url).send().await {
+        Ok(resp) => resp.text().await.unwrap_or_default(),
+        Err(_) => String::new(),
+    };
+
     // Try to use navbar for TOC
-    if let Some(t) = toc_from_navbar(url).await.unwrap_or_else(|e| {
+    if let Some(t) = toc_from_navbar(url, &html).await.unwrap_or_else(|e| {
         tracing::debug!("TOC from navbar failed, falling back to entry page: {e:#}");
         None
     }) {
         return t;
     }
 
+    let doc = scraper::Html::parse_document(&html);
+
+    let h1 = doc
+        .select(&Selector::parse(r#"h1"#).unwrap())
+        .next()
+        .map(|el| el.text().collect::<String>().trim().to_string())
+        .filter(|t| !t.is_empty());
+
     vec![TocNode {
         file_path: None,
-        title: None,
+        title: h1,
         href: url.to_string(),
         level: 0,
     }]
 }
 
-async fn toc_from_navbar(url: &String) -> Result<Option<Vec<TocNode>>> {
-    let html = HTTP_CLIENT.get(url).send().await?.text().await?;
-
+async fn toc_from_navbar(url: &str, html: &str) -> Result<Option<Vec<TocNode>>> {
     let base_url = Url::parse(url)?;
 
     // TODO: support different navbars
 
-    match parse_mdbook_toc(&html, &base_url) {
+    match parse_mdbook_toc(html, &base_url) {
         Ok(t) => Ok(Some(t)),
         Err(e) => {
             println!("{:?}", e);

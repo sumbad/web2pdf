@@ -4,7 +4,7 @@
 - **Build**: `cargo build` (add `--release` for optimized builds)
 - **Test single test**: `cargo test -- <test_name>` 
 - **Test all**: `cargo test`
-- **Run**: `cargo run -- [--debug] <URL> [OUTPUT]` (output defaults to `output.pdf`)
+- **Run**: `cargo run -- [--debug] <URL> [-o OUTPUT]` (output defaults to a name derived from the page title, falling back to `output.pdf`)
 - **Lint**: `cargo clippy -- -D warnings` (strict clippy with warnings as errors)
 - **Format**: `cargo fmt`
 - **Check**: `cargo check`

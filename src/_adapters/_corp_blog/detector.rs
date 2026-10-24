@@ -7,7 +7,7 @@ pub struct CorpBlogDetector;
 
 #[async_trait::async_trait]
 impl ResourceDetector for CorpBlogDetector {
-    fn detect_fast(&self, html: &str) -> bool {
+    fn detect_fast(&self, html: &str, _url: &str) -> bool {
         let doc = scraper::Html::parse_document(html);
 
         // body structure

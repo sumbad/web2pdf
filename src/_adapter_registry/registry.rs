@@ -41,7 +41,7 @@ impl AdapterRegistry {
     pub async fn detect(&self, html: &str, browser: &Browser, url: &str) -> &dyn ResourceAdapter {
         // FAST
         for entry in &self.entries {
-            if entry.detector.detect_fast(html) {
+            if entry.detector.detect_fast(html, url) {
                 return entry.adapter.as_ref();
             }
         }

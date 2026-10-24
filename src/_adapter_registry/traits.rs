@@ -6,7 +6,7 @@ use chromiumoxide::page::Page;
 
 #[async_trait::async_trait]
 pub trait ResourceDetector: Send + Sync + Debug {
-    fn detect_fast(&self, _html: &str) -> bool {
+    fn detect_fast(&self, _html: &str, _url: &str) -> bool {
         false
     }
 

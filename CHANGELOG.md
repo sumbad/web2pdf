@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Added
+- **GitHub Blog adapter**: new `GHBlogAdapter` for github.blog — detects the site by host + `og:site_name` meta and sanitizes pages before PDF generation (removes site header/footer/aside blocks, normalizes whitespace and inline `<code>`/`<a>` spacing)
+- **Default output name**: without `-o` the output file is now named after the page title (sanitized, up to 100 chars), falling back to `output.pdf`; the title comes from the first TOC entry, with the entry page's `<h1>` as a fallback
+- **Detector URL access**: `ResourceDetector::detect_fast` now receives the URL along with the HTML, so detectors can filter by host before parsing
+- **Unit tests**: 7 tests for the GitHub Blog detector (site-name match, host filtering, look-alike domains, missing meta)
+
+### Changed
+- **Breaking CLI syntax**: output file is now an option instead of a positional argument — `web2pdf [--debug] <URL> [-o OUTPUT]` instead of `web2pdf [--debug] <URL> [OUTPUT]`
+
+### Fixed
+- **Entry page timeout**: `goto` resolves only after the page's `load` event, so a page with a hanging subresource (e.g. a habr article embedding an unreachable YouTube video) stalled the whole run for 30 s and failed with `Request timed out`. The entry navigation now times out gracefully, stops loading and continues with the partial HTML — the same strategy per-page processing already used
+- **Output file name**: non-ASCII titles (e.g. Cyrillic) no longer produce a whitespace-only file name; title-derived names are trimmed and empty results fall back to `output.pdf`
+
+---
+
 ## [0.5.1] - 2026-09-24
 
 ### Added

@@ -13,6 +13,7 @@ use _pdf_utils::merge_pdfs::merge_pdfs;
 
 mod browser_utils;
 use crate::_adapter_registry::traits::ResourceAdapter;
+use crate::_adapters::_gh_blog::adapter::GHBlogAdapter;
 use crate::auth::login;
 use crate::browser_utils::{
     attach_console_logger, build_browser_config, find_browser, set_extra_headers,
@@ -60,8 +61,8 @@ struct Args {
     url: String,
 
     /// Output file name
-    #[arg(default_value = "output.pdf")]
-    output: String,
+    #[arg(short = 'o', long = "output")]
+    output: Option<String>,
 
     /// Turn debugging information on
     #[arg(short, long)]
@@ -99,7 +100,7 @@ async fn main() -> Result<()> {
         login(&browser_path, &args.url).await?;
     }
 
-    convert(&browser_path, &args.url, &args.output, args.debug).await?;
+    convert(&browser_path, &args.url, args.output, args.debug).await?;
 
     Ok(())
 }
@@ -107,7 +108,7 @@ async fn main() -> Result<()> {
 async fn convert(
     browser_path: &String,
     url: &String,
-    output: &String,
+    output: Option<String>,
     debug_mode: bool,
 ) -> Result<()> {
     let mut toc = toc::generate_toc(url).await;
@@ -154,7 +155,20 @@ async fn convert(
     let page = browser.new_page("about:blank").await?;
     attach_console_logger(&page).await?;
     set_extra_headers(&page).await?;
-    page.goto(url).await?;
+
+    // chromiumoxide's goto resolves only after the page's load event, and some
+    // pages (e.g. habr with a hanging YouTube embed) never reach it.
+    if tokio::time::timeout(
+        std::time::Duration::from_secs(LOAD_PAGE_TIMEOUT_SEC),
+        page.goto(url),
+    )
+    .await
+    .is_err()
+    {
+        tracing::warn!("Timeout loading entry page, continuing with partial HTML");
+        page.execute(StopLoadingParams::default()).await?;
+    }
+
     let html = page.content().await?;
     tracing::debug!("HTML fetched, length: {} bytes", html.len());
 
@@ -169,6 +183,7 @@ async fn convert(
     let mut registry = AdapterRegistry::new();
     registry.register::<MdBookAdapter>();
     registry.register::<CorpBlogAdapter>();
+    registry.register::<GHBlogAdapter>();
     let adapter = registry.detect(&html, &browser, url).await;
     tracing::info!("Detected adapter {:?}", adapter);
 
@@ -196,9 +211,37 @@ async fn convert(
     }
 
     // 🧩 4. Merge PDFs
-    let output_path = PathBuf::from(output);
+    let output = if let Some(out_name) = output {
+        out_name
+    } else {
+        let safe_title: String = toc[0]
+            .title
+            .as_deref()
+            .map(|title| {
+                title
+                    .chars()
+                    .filter(|c| {
+                        c.is_ascii_alphanumeric()
+                            || *c == ' '
+                            || *c == '.'
+                            || *c == '-'
+                            || *c == '_'
+                    })
+                    .take(100)
+                    .collect::<String>()
+                    // Non-ASCII titles (e.g. Cyrillic) can leave nothing
+                    // but the spaces between the words
+                    .trim()
+                    .to_string()
+            })
+            .filter(|t| !t.is_empty())
+            .unwrap_or_else(|| String::from("output"));
+
+        format!("{}.pdf", safe_title)
+    };
+
     println!("📚 Merging {} PDFs into {}", toc.len(), output);
-    merge_pdfs(toc, output_path)?;
+    merge_pdfs(toc, PathBuf::from(output))?;
 
     Ok(())
 }

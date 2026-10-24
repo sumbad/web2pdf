@@ -7,7 +7,7 @@ pub struct MdBookDetector;
 
 #[async_trait::async_trait]
 impl ResourceDetector for MdBookDetector {
-    fn detect_fast(&self, html: &str) -> bool {
+    fn detect_fast(&self, html: &str, _url: &str) -> bool {
         let doc = scraper::Html::parse_document(html);
 
         let meta = Selector::parse(r#"meta[name="generator"]"#).unwrap();
@@ -71,7 +71,7 @@ mod tests {
     #[test]
     fn detects_by_generator_meta() {
         let html = r#"<html><head><meta name="generator" content="mdBook 0.4.40"></head><body></body></html>"#;
-        assert!(MdBookDetector.detect_fast(html));
+        assert!(MdBookDetector.detect_fast(html, ""));
     }
 
     #[test]
@@ -83,15 +83,15 @@ mod tests {
         <main id="content"></main>
         <script src="book.js"></script>
         </body></html>"#;
-        assert!(MdBookDetector.detect_fast(html));
+        assert!(MdBookDetector.detect_fast(html, ""));
     }
 
     #[test]
     fn rejects_unrelated_page() {
         let html = r#"<html><body><article>Just a blog post</article></body></html>"#;
-        assert!(!MdBookDetector.detect_fast(html));
+        assert!(!MdBookDetector.detect_fast(html, ""));
         // A single weak signal stays below the threshold
         let weak = r#"<html><body><ul class="chapter"></ul></body></html>"#;
-        assert!(!MdBookDetector.detect_fast(weak));
+        assert!(!MdBookDetector.detect_fast(weak, ""));
     }
 }

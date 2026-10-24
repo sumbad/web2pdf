@@ -52,11 +52,12 @@ cargo install --git https://github.com/sumbad/web2pdf.git web2pdf
 ### Basic syntax
 
 ```bash
-web2pdf [--debug] <URL> [OUTPUT]
+web2pdf [OPTIONS] <URL>
 ```
 
 ### Options
 
+- `--output`, `-o` - Output file name (default: derived from the page title, falls back to `output.pdf`)
 - `--login`, `-l` - Run authorization (session data is saved to a local browser profile)
 - `--debug`, `-d` - Enable debug mode with verbose logging (limits pages to 3 in debug builds, dumps source page HTML)
 - `--help`, `-h` - Display help information
@@ -75,11 +76,11 @@ A browser window opens — complete the login and press Enter in the terminal. T
 ### Examples
 
 ```bash
-# Convert website to PDF (output defaults to output.pdf)
+# Convert website to PDF (output file name defaults to the page title)
 web2pdf https://example.com
 
 # Specify custom output file
-web2pdf https://example.com site.pdf
+web2pdf https://example.com -o site.pdf
 
 # Authenticated sites: perform a one-time login
 web2pdf --login https://example.com
